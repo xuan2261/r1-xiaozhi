@@ -1,0 +1,62 @@
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion 22
+    buildToolsVersion "22.0.1"
+    
+    defaultConfig {
+        applicationId "com.phicomm.r1.xiaozhi"
+        minSdkVersion 22
+        targetSdkVersion 22
+        versionCode 1
+        versionName "1.0.0"
+        
+        ndk {
+            abiFilters "armeabi-v7a"  // R1 chỉ hỗ trợ ARMv7
+        }
+    }
+    
+    buildTypes {
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            debuggable true
+        }
+    }
+    
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_7
+        targetCompatibility JavaVersion.VERSION_1_7
+    }
+    
+    lintOptions {
+        abortOnError false
+    }
+}
+
+dependencies {
+    compile fileTree(dir: 'libs', include: ['*.jar'])
+    
+    // Android Support Libraries
+    compile 'com.android.support:appcompat-v7:22.2.1'
+    compile 'com.android.support:support-v4:22.2.1'
+    
+    // Network Libraries
+    compile 'com.squareup.okhttp3:okhttp:3.14.9'
+    compile 'com.squareup.okhttp3:okhttp-ws:3.4.2'
+    
+    // JSON Processing
+    compile 'com.google.code.gson:gson:2.8.6'
+    
+    // Logging
+    compile 'com.jakewharton.timber:timber:4.7.1'
+    
+    // Shared Preferences
+    compile 'com.pixplicity.easyprefs:library:1.9.0'
+    
+    // NanoHTTPD for web server
+    compile 'org.nanohttpd:nanohttpd:2.3.1'
+    compile 'org.nanohttpd:nanohttpd-websocket:2.3.1'
+}

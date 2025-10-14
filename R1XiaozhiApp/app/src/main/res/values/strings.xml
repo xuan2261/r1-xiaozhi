@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Xiaozhi R1</string>
+    <string name="settings">Cài đặt</string>
+    <string name="start">Khởi động</string>
+    <string name="stop">Dừng</string>
+    <string name="status">Trạng thái</string>
+    <string name="connection">Kết nối</string>
+    <string name="wake_word">Wake Word</string>
+    <string name="cloud_mode">Chế độ Cloud</string>
+    <string name="self_hosted_mode">Chế độ Self-hosted</string>
+    <string name="cloud_url">Cloud URL</string>
+    <string name="self_hosted_url">Self-hosted URL</string>
+    <string name="api_key">API Key</string>
+    <string name="auto_start">Tự động khởi động</string>
+    <string name="led_control">Điều khiển LED</string>
+    <string name="save">Lưu</string>
+    <string name="cancel">Hủy</string>
+</resources>

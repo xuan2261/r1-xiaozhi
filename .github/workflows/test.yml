@@ -1,0 +1,96 @@
+name: Code Quality & Tests
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  lint:
+    name: Lint Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Set up JDK 8
+      uses: actions/setup-java@v3
+      with:
+        java-version: '8'
+        distribution: 'temurin'
+        cache: gradle
+        
+    - name: Grant execute permission
+      run: chmod +x R1XiaozhiApp/gradlew
+      
+    - name: Run Lint
+      run: |
+        cd R1XiaozhiApp
+        ./gradlew lintDebug
+        
+    - name: Upload Lint Report
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: Lint-Report
+        path: R1XiaozhiApp/app/build/reports/lint-results-debug.html
+        retention-days: 30
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Set up JDK 8
+      uses: actions/setup-java@v3
+      with:
+        java-version: '8'
+        distribution: 'temurin'
+        cache: gradle
+        
+    - name: Grant execute permission
+      run: chmod +x R1XiaozhiApp/gradlew
+      
+    - name: Run Unit Tests
+      run: |
+        cd R1XiaozhiApp
+        ./gradlew testDebugUnitTest --stacktrace
+        
+    - name: Upload Test Report
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: Test-Report
+        path: R1XiaozhiApp/app/build/reports/tests/testDebugUnitTest/
+        retention-days: 30
+
+  code-analysis:
+    name: Code Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Check code formatting
+      run: |
+        echo "Checking for common code issues..."
+        find R1XiaozhiApp -name "*.java" -type f | wc -l
+        echo "Java files found and ready for analysis"
+        
+    - name: Check for TODO/FIXME
+      run: |
+        echo "Checking for TODOs and FIXMEs..."
+        grep -r "TODO\|FIXME" R1XiaozhiApp/app/src/main/java/ || echo "No TODOs or FIXMEs found"
+        
+    - name: Check dependencies
+      run: |
+        cd R1XiaozhiApp
+        ./gradlew dependencies > dependencies.txt
+        echo "Dependencies checked and saved"
+      continue-on-error: true

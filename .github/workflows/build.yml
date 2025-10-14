@@ -1,0 +1,180 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master, develop ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # Cho phép trigger thủ công
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Set up JDK 8
+      uses: actions/setup-java@v3
+      with:
+        java-version: '8'
+        distribution: 'temurin'
+        cache: gradle
+        
+    - name: Grant execute permission for gradlew
+      run: chmod +x R1XiaozhiApp/gradlew
+      
+    - name: Cache Gradle packages
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+          
+    - name: Build Debug APK
+      run: |
+        cd R1XiaozhiApp
+        ./gradlew assembleDebug --stacktrace
+        
+    - name: Build Release APK
+      run: |
+        cd R1XiaozhiApp
+        ./gradlew assembleRelease --stacktrace
+        
+    - name: Get version info
+      id: version
+      run: |
+        cd R1XiaozhiApp
+        VERSION_NAME=$(grep "versionName" app/build.gradle | awk -F'"' '{print $2}')
+        VERSION_CODE=$(grep "versionCode" app/build.gradle | awk '{print $2}')
+        echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
+        echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
+        echo "Version: $VERSION_NAME (Code: $VERSION_CODE)"
+        
+    - name: Rename APKs
+      run: |
+        cd R1XiaozhiApp/app/build/outputs/apk
+        mv debug/app-debug.apk debug/R1Xiaozhi-v${{ steps.version.outputs.version_name }}-debug.apk
+        mv release/app-release.apk release/R1Xiaozhi-v${{ steps.version.outputs.version_name }}-release.apk
+        
+    - name: Upload Debug APK
+      uses: actions/upload-artifact@v3
+      with:
+        name: R1Xiaozhi-Debug-APK
+        path: R1XiaozhiApp/app/build/outputs/apk/debug/*.apk
+        retention-days: 30
+        
+    - name: Upload Release APK
+      uses: actions/upload-artifact@v3
+      with:
+        name: R1Xiaozhi-Release-APK
+        path: R1XiaozhiApp/app/build/outputs/apk/release/*.apk
+        retention-days: 90
+        
+    - name: Generate checksum
+      run: |
+        cd R1XiaozhiApp/app/build/outputs/apk/release
+        sha256sum *.apk > checksums.txt
+        cat checksums.txt
+        
+    - name: Upload checksum
+      uses: actions/upload-artifact@v3
+      with:
+        name: Checksums
+        path: R1XiaozhiApp/app/build/outputs/apk/release/checksums.txt
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Download Release APK
+      uses: actions/download-artifact@v3
+      with:
+        name: R1Xiaozhi-Release-APK
+        path: release-apk
+        
+    - name: Download Checksums
+      uses: actions/download-artifact@v3
+      with:
+        name: Checksums
+        path: checksums
+        
+    - name: Get version from tag
+      id: tag_version
+      run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: Release ${{ steps.tag_version.outputs.version }}
+        body: |
+          ## Xiaozhi Voice Assistant for Phicomm R1
+          
+          ### 📦 Phiên bản: ${{ steps.tag_version.outputs.version }}
+          
+          ### 📥 Tải xuống
+          - **Release APK**: Dành cho production, đã tối ưu và minify
+          - **Checksums**: SHA256 để verify tính toàn vẹn
+          
+          ### 🚀 Cài đặt nhanh
+          ```bash
+          # Download APK
+          wget https://github.com/${{ github.repository }}/releases/download/v${{ steps.tag_version.outputs.version }}/R1Xiaozhi-v${{ steps.tag_version.outputs.version }}-release.apk
+          
+          # Install via ADB
+          adb install -r R1Xiaozhi-v${{ steps.tag_version.outputs.version }}-release.apk
+          ```
+          
+          ### 📝 Hướng dẫn
+          Xem chi tiết tại [HUONG_DAN_CAI_DAT.md](https://github.com/${{ github.repository }}/blob/main/HUONG_DAN_CAI_DAT.md)
+          
+          ### ✨ Tính năng
+          - ✅ Wake word detection
+          - ✅ Xiaozhi Cloud & Self-hosted support
+          - ✅ Auto-fallback mechanism
+          - ✅ LED status indicators
+          - ✅ Auto-start on boot
+          
+          ---
+          
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ github.event.before }}...v${{ steps.tag_version.outputs.version }}
+        files: |
+          release-apk/*.apk
+          checksums/checksums.txt
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify:
+    name: Build Status Notification
+    needs: build
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Build Success
+      if: needs.build.result == 'success'
+      run: |
+        echo "✅ Build completed successfully!"
+        echo "APK artifacts are available in the Actions tab"
+        
+    - name: Build Failed
+      if: needs.build.result == 'failure'
+      run: |
+        echo "❌ Build failed!"
+        echo "Check the logs for details"
+        exit 1
