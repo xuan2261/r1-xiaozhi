@@ -53,9 +53,6 @@ dependencies {
     // Logging
     compile 'com.jakewharton.timber:timber:4.7.1'
     
-    // Shared Preferences
-    compile 'com.pixplicity.easyprefs:library:1.9.0'
-    
     // NanoHTTPD for web server
     compile 'org.nanohttpd:nanohttpd:2.3.1'
     compile 'org.nanohttpd:nanohttpd-websocket:2.3.1'
