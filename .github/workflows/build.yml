@@ -27,10 +27,12 @@ jobs:
         
     - name: Remove corrupted SDK packages
       run: |
-        # Remove corrupted system-images with '33x' api-level
-        rm -rf $ANDROID_HOME/system-images/* || true
-        # Remove corrupted package metadata
-        find $ANDROID_HOME -name "package.xml" -exec grep -l "33x" {} \; -delete || true
+        # Remove ALL potentially corrupted packages
+        rm -rf $ANDROID_HOME/system-images || true
+        rm -rf $ANDROID_HOME/platforms/android-33* || true
+        rm -rf $ANDROID_HOME/platforms/android-34* || true
+        # Keep only android-22 (our target)
+        find $ANDROID_HOME/platforms -mindepth 1 -maxdepth 1 ! -name 'android-22' -exec rm -rf {} + || true
         
     - name: Grant execute permission for gradlew
       run: chmod +x R1XiaozhiApp/gradlew
