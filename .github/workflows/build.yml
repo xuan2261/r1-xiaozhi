@@ -65,14 +65,14 @@ jobs:
         mv release/app-release.apk release/R1Xiaozhi-v${{ steps.version.outputs.version_name }}-release.apk
         
     - name: Upload Debug APK
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: R1Xiaozhi-Debug-APK
         path: R1XiaozhiApp/app/build/outputs/apk/debug/*.apk
         retention-days: 30
         
     - name: Upload Release APK
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: R1Xiaozhi-Release-APK
         path: R1XiaozhiApp/app/build/outputs/apk/release/*.apk
@@ -85,7 +85,7 @@ jobs:
         cat checksums.txt
         
     - name: Upload checksum
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: Checksums
         path: R1XiaozhiApp/app/build/outputs/apk/release/checksums.txt
@@ -101,13 +101,13 @@ jobs:
       uses: actions/checkout@v3
       
     - name: Download Release APK
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: R1Xiaozhi-Release-APK
         path: release-apk
         
     - name: Download Checksums
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: Checksums
         path: checksums

@@ -32,7 +32,7 @@ jobs:
         
     - name: Upload Lint Report
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: Lint-Report
         path: R1XiaozhiApp/app/build/reports/lint-results-debug.html
@@ -63,7 +63,7 @@ jobs:
         
     - name: Upload Test Report
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: Test-Report
         path: R1XiaozhiApp/app/build/reports/tests/testDebugUnitTest/
