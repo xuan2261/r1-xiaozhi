@@ -1,6 +1,8 @@
 package com.phicomm.r1.xiaozhi.ui;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -33,7 +35,9 @@ public class MainActivity extends Activity {
     
     private TextView statusText;
     private TextView pairingCodeText;
+    private TextView instructionsText;
     private Button connectButton;
+    private Button copyButton;
     private Button resetButton;
     
     private XiaozhiConnectionService xiaozhiService;
@@ -138,7 +142,9 @@ public class MainActivity extends Activity {
         // Initialize views - API 22 requires explicit cast
         statusText = (TextView) findViewById(R.id.statusText);
         pairingCodeText = (TextView) findViewById(R.id.pairingCodeText);
+        instructionsText = (TextView) findViewById(R.id.instructionsText);
         connectButton = (Button) findViewById(R.id.connectButton);
+        copyButton = (Button) findViewById(R.id.copyButton);
         resetButton = (Button) findViewById(R.id.resetButton);
         
         // Setup buttons
@@ -146,6 +152,13 @@ public class MainActivity extends Activity {
             @Override
             public void onClick(View v) {
                 connectToXiaozhi();
+            }
+        });
+        
+        copyButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                copyPairingCode();
             }
         });
         
@@ -177,8 +190,10 @@ public class MainActivity extends Activity {
         boolean isPaired = PairingCodeGenerator.isPaired(this);
         
         if (isPaired) {
-            updateStatus("Đã ghép nối - Sẵn sàng");
-            pairingCodeText.setText("Đã ghép nối");
+            updateStatus("✓ Đã ghép nối - Sẵn sàng sử dụng");
+            pairingCodeText.setText("✓ Đã Ghép Nối");
+            instructionsText.setVisibility(View.GONE);
+            copyButton.setVisibility(View.GONE);
             connectButton.setEnabled(false);
         } else {
             // Hiển thị pairing code LOCAL
@@ -186,13 +201,35 @@ public class MainActivity extends Activity {
             String pairingCode = PairingCodeGenerator.getPairingCode(this);
             String formattedCode = PairingCodeGenerator.formatPairingCode(pairingCode);
             
-            updateStatus("Chưa ghép nối - Nhập mã vào console.xiaozhi.ai");
-            pairingCodeText.setText("Mã ghép nối: " + formattedCode);
+            updateStatus("⚠ Chưa ghép nối - Làm theo hướng dẫn bên dưới");
+            pairingCodeText.setText(formattedCode);
+            instructionsText.setVisibility(View.VISIBLE);
+            copyButton.setVisibility(View.VISIBLE);
             connectButton.setEnabled(true);
             
+            Log.i(TAG, "=== DEVICE INFO ===");
             Log.i(TAG, "Device ID: " + deviceId);
-            Log.i(TAG, "Pairing code: " + pairingCode);
+            Log.i(TAG, "Pairing Code: " + pairingCode);
+            Log.i(TAG, "Formatted: " + formattedCode);
+            Log.i(TAG, "==================");
         }
+    }
+    
+    /**
+     * Copy pairing code to clipboard
+     */
+    private void copyPairingCode() {
+        String pairingCode = PairingCodeGenerator.getPairingCode(this);
+        
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        ClipData clip = ClipData.newPlainText("Xiaozhi Pairing Code", pairingCode);
+        clipboard.setPrimaryClip(clip);
+        
+        Toast.makeText(this,
+            "✓ Đã sao chép mã: " + pairingCode,
+            Toast.LENGTH_SHORT).show();
+        
+        Log.i(TAG, "Pairing code copied: " + pairingCode);
     }
     
     /**

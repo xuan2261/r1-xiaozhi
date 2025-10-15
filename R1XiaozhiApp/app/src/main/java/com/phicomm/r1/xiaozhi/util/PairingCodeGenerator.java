@@ -88,11 +88,15 @@ public class PairingCodeGenerator {
     /**
      * Lấy pairing code = 6 ký tự cuối của Device ID
      * Theo ESP32: deviceId.substring(deviceId.length() - 6)
+     * FORCE uppercase để đảm bảo match với server
      */
     public static String getPairingCode(Context context) {
         String deviceId = getDeviceId(context);
-        String code = deviceId.substring(deviceId.length() - 6);
-        Log.d(TAG, "Pairing code: " + code + " (from device ID: " + deviceId + ")");
+        String code = deviceId.substring(deviceId.length() - 6).toUpperCase();
+        Log.i(TAG, "=== PAIRING CODE DEBUG ===");
+        Log.i(TAG, "Device ID: " + deviceId);
+        Log.i(TAG, "Pairing Code: " + code);
+        Log.i(TAG, "=========================");
         return code;
     }
     

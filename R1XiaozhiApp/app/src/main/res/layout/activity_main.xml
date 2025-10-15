@@ -20,13 +20,30 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Pairing Code: ---"
-        android:textSize="20sp"
+        android:textSize="24sp"
         android:textColor="#4CAF50"
         android:textStyle="bold"
         android:gravity="center"
         android:background="#F0F0F0"
         android:padding="20dp"
+        android:layout_marginBottom="10dp"/>
+
+    <Button
+        android:id="@+id/copyButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="📋 Sao Chép Mã"
+        android:layout_gravity="center"
         android:layout_marginBottom="20dp"/>
+
+    <TextView
+        android:id="@+id/instructionsText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Hướng dẫn kết nối:\n1. Sao chép mã ghép nối ở trên\n2. Vào console.xiaozhi.ai\n3. Thêm thiết bị với mã đã sao chép\n4. Quay lại và nhấn Kết Nối"
+        android:textSize="14sp"
+        android:gravity="center"
+        android:layout_marginBottom="15dp"/>
 
     <TextView
         android:id="@+id/statusText"
@@ -34,6 +51,8 @@
         android:layout_height="wrap_content"
         android:text="Status: Idle"
         android:textSize="16sp"
+        android:textStyle="bold"
+        android:gravity="center"
         android:layout_marginBottom="10dp"/>
 
     <TextView
