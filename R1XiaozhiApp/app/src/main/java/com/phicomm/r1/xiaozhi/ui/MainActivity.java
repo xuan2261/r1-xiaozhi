@@ -110,11 +110,11 @@ public class MainActivity extends Activity {
             
             xiaozhiService.setCallback(new XiaozhiConnectionService.ConnectionCallback() {
                 @Override
-                public void onConnected(boolean isCloud) {
+                public void onConnected(final boolean isCloud) {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            connectionStatusText.setText("Đã kết nối: " + 
+                            connectionStatusText.setText("Đã kết nối: " +
                                 (isCloud ? "Cloud" : "Self-hosted"));
                         }
                     });
