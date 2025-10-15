@@ -3,10 +3,12 @@ package com.phicomm.r1.xiaozhi.service;
 import android.app.Service;
 import android.content.Intent;
 import android.os.Binder;
+import android.os.Handler;
 import android.os.IBinder;
 import android.util.Log;
 
 import com.phicomm.r1.xiaozhi.config.XiaozhiConfig;
+import com.phicomm.r1.xiaozhi.util.ErrorCodes;
 import com.phicomm.r1.xiaozhi.util.PairingCodeGenerator;
 
 import org.java_websocket.client.WebSocketClient;
@@ -20,13 +22,21 @@ import java.util.UUID;
 /**
  * Service quản lý kết nối WebSocket với Xiaozhi Cloud
  * Theo chuẩn xiaozhi-esp32: wss://xiaozhi.me/v1/ws + Authorize handshake
+ * Enhanced với ErrorCodes và retry logic (học từ android-client & py-xiaozhi)
  */
 public class XiaozhiConnectionService extends Service {
     
     private static final String TAG = "XiaozhiConnection";
+    private static final int MAX_RETRIES = 3;
+    
     private WebSocketClient webSocketClient;
     private final IBinder binder = new LocalBinder();
     private ConnectionListener connectionListener;
+    
+    // Retry logic
+    private Handler retryHandler;
+    private int retryCount = 0;
+    private boolean isRetrying = false;
     
     public class LocalBinder extends Binder {
         public XiaozhiConnectionService getService() {
@@ -51,6 +61,7 @@ public class XiaozhiConnectionService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.i(TAG, "Service started");
+        retryHandler = new Handler();
         return START_STICKY;
     }
     
@@ -98,17 +109,28 @@ public class XiaozhiConnectionService extends Service {
                 @Override
                 public void onClose(int code, String reason, boolean remote) {
                     Log.w(TAG, "WebSocket closed: " + reason + " (code: " + code + ")");
+                    
                     if (connectionListener != null) {
                         connectionListener.onDisconnected();
+                    }
+                    
+                    // Auto retry if not manually disconnected
+                    if (remote && !isRetrying) {
+                        scheduleReconnect(ErrorCodes.WEBSOCKET_ERROR);
                     }
                 }
                 
                 @Override
                 public void onError(Exception ex) {
                     Log.e(TAG, "WebSocket error: " + ex.getMessage(), ex);
+                    
+                    String errorMsg = ErrorCodes.getMessage(ErrorCodes.WEBSOCKET_ERROR);
                     if (connectionListener != null) {
-                        connectionListener.onError(ex.getMessage());
+                        connectionListener.onError(errorMsg);
                     }
+                    
+                    // Retry on error
+                    scheduleReconnect(ErrorCodes.WEBSOCKET_ERROR);
                 }
             };
             
@@ -217,11 +239,17 @@ public class XiaozhiConnectionService extends Service {
     private void handleAuthorizeResponse(JSONObject json) {
         try {
             JSONObject payload = json.getJSONObject("payload");
-            String code = payload.optString("code", "-1");
-            String errorMessage = payload.optString("message", "Unknown error");
+            String codeStr = payload.optString("code", "-1");
+            String serverMessage = payload.optString("message", "");
             
-            if ("0".equals(code)) {
+            int errorCode = ErrorCodes.parseErrorCode(codeStr);
+            
+            if ("0".equals(codeStr)) {
                 Log.i(TAG, "Pairing SUCCESS!");
+                
+                // Reset retry count on success
+                retryCount = 0;
+                isRetrying = false;
                 
                 // Mark as paired
                 PairingCodeGenerator.markAsPaired(this);
@@ -230,17 +258,25 @@ public class XiaozhiConnectionService extends Service {
                     connectionListener.onPairingSuccess();
                 }
             } else {
-                Log.e(TAG, "Pairing FAILED: code=" + code + ", message=" + errorMessage);
+                String errorMsg = ErrorCodes.getMessage(errorCode);
+                Log.e(TAG, "Pairing FAILED: code=" + errorCode +
+                    " (" + ErrorCodes.getEnglishMessage(errorCode) + ")");
                 
                 if (connectionListener != null) {
-                    connectionListener.onPairingFailed("Code: " + code + ", " + errorMessage);
+                    connectionListener.onPairingFailed(errorMsg);
+                }
+                
+                // Retry if error is retryable
+                if (ErrorCodes.isRetryable(errorCode)) {
+                    scheduleReconnect(errorCode);
                 }
             }
             
         } catch (JSONException e) {
             Log.e(TAG, "Failed to parse Authorize response: " + e.getMessage(), e);
+            String errorMsg = ErrorCodes.getMessage(ErrorCodes.INVALID_MESSAGE_FORMAT);
             if (connectionListener != null) {
-                connectionListener.onPairingFailed("Invalid response format");
+                connectionListener.onPairingFailed(errorMsg);
             }
         }
     }
@@ -278,9 +314,55 @@ public class XiaozhiConnectionService extends Service {
     }
     
     /**
-     * Disconnect
+     * Schedule reconnect với exponential backoff
+     */
+    private void scheduleReconnect(final int errorCode) {
+        if (retryCount >= MAX_RETRIES) {
+            Log.e(TAG, "Max retries reached. Giving up.");
+            isRetrying = false;
+            retryCount = 0;
+            
+            String errorMsg = ErrorCodes.getMessage(ErrorCodes.SERVER_UNAVAILABLE);
+            if (connectionListener != null) {
+                connectionListener.onError(errorMsg);
+            }
+            return;
+        }
+        
+        isRetrying = true;
+        int delay = ErrorCodes.getRetryDelay(errorCode, retryCount);
+        retryCount++;
+        
+        Log.i(TAG, "Scheduling reconnect #" + retryCount + " in " + delay + "ms");
+        
+        if (retryHandler != null) {
+            retryHandler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    Log.i(TAG, "Retrying connection...");
+                    connect();
+                }
+            }, delay);
+        }
+    }
+    
+    /**
+     * Cancel scheduled retries
+     */
+    private void cancelRetries() {
+        isRetrying = false;
+        retryCount = 0;
+        if (retryHandler != null) {
+            retryHandler.removeCallbacksAndMessages(null);
+        }
+    }
+    
+    /**
+     * Disconnect (manual - no auto retry)
      */
     public void disconnect() {
+        cancelRetries();
+        
         if (webSocketClient != null) {
             webSocketClient.close();
             webSocketClient = null;
@@ -297,6 +379,7 @@ public class XiaozhiConnectionService extends Service {
     
     @Override
     public void onDestroy() {
+        cancelRetries();
         disconnect();
         super.onDestroy();
         Log.i(TAG, "Service destroyed");

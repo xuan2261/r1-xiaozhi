@@ -8,6 +8,10 @@ import android.content.SharedPreferences;
  */
 public class XiaozhiConfig {
     
+    // Constants for XiaozhiConnectionService
+    public static final String WEBSOCKET_URL = "wss://xiaozhi.me/v1/ws";
+    public static final String CLIENT_ID = "1000013";
+    
     private static final String PREFS_NAME = "xiaozhi_config";
     private static final String KEY_USE_CLOUD = "use_cloud";
     private static final String KEY_CLOUD_URL = "cloud_url";
@@ -19,7 +23,7 @@ public class XiaozhiConfig {
     private static final String KEY_HTTP_SERVER_PORT = "http_server_port";
     
     // Default values
-    public static final String DEFAULT_CLOUD_URL = "wss://xiaozhi.me/websocket";
+    public static final String DEFAULT_CLOUD_URL = "wss://xiaozhi.me/v1/ws";
     public static final String DEFAULT_SELF_HOSTED_URL = "ws://192.168.1.100:8080/websocket";
     public static final String DEFAULT_WAKE_WORD = "小智";
     public static final int DEFAULT_HTTP_PORT = 8088;
