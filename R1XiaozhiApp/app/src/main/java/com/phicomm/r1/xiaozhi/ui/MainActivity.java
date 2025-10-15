@@ -58,7 +58,7 @@ public class MainActivity extends Activity {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            updateStatus("Đã kết nối - Đang xác thực...");
+                            updateStatus("Da ket noi - Dang xac thuc...");
                             connectButton.setEnabled(false);
                         }
                     });
@@ -69,7 +69,7 @@ public class MainActivity extends Activity {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            updateStatus("Mất kết nối");
+                            updateStatus("Mat ket noi");
                             connectButton.setEnabled(true);
                         }
                     });
@@ -80,11 +80,11 @@ public class MainActivity extends Activity {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            updateStatus("✓ Đã ghép nối thành công!");
+                            updateStatus("[OK] Da ghep noi thanh cong!");
                             Toast.makeText(MainActivity.this,
-                                "Pairing thành công! Có thể dùng giọng nói.",
+                                "Pairing thanh cong! Co the dung giong noi.",
                                 Toast.LENGTH_LONG).show();
-                            pairingCodeText.setText("Đã ghép nối");
+                            pairingCodeText.setText("Da Ghep Noi");
                             connectButton.setEnabled(false);
                         }
                     });
@@ -95,9 +95,9 @@ public class MainActivity extends Activity {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            updateStatus("✗ Ghép nối thất bại: " + error);
+                            updateStatus("[FAIL] Ghep noi that bai: " + error);
                             Toast.makeText(MainActivity.this,
-                                "Pairing thất bại: " + error,
+                                "Pairing that bai: " + error,
                                 Toast.LENGTH_LONG).show();
                             connectButton.setEnabled(true);
                         }
@@ -114,9 +114,9 @@ public class MainActivity extends Activity {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            updateStatus("Lỗi: " + error);
+                            updateStatus("Loi: " + error);
                             Toast.makeText(MainActivity.this,
-                                "Lỗi: " + error,
+                                "Loi: " + error,
                                 Toast.LENGTH_SHORT).show();
                         }
                     });
@@ -190,8 +190,8 @@ public class MainActivity extends Activity {
         boolean isPaired = PairingCodeGenerator.isPaired(this);
         
         if (isPaired) {
-            updateStatus("✓ Đã ghép nối - Sẵn sàng sử dụng");
-            pairingCodeText.setText("✓ Đã Ghép Nối");
+            updateStatus("[OK] Da ghep noi - San sang su dung");
+            pairingCodeText.setText("[OK] Da Ghep Noi");
             instructionsText.setVisibility(View.GONE);
             copyButton.setVisibility(View.GONE);
             connectButton.setEnabled(false);
@@ -201,7 +201,7 @@ public class MainActivity extends Activity {
             String pairingCode = PairingCodeGenerator.getPairingCode(this);
             String formattedCode = PairingCodeGenerator.formatPairingCode(pairingCode);
             
-            updateStatus("⚠ Chưa ghép nối - Làm theo hướng dẫn bên dưới");
+            updateStatus("[!] Chua ghep noi - Lam theo huong dan ben duoi");
             pairingCodeText.setText(formattedCode);
             instructionsText.setVisibility(View.VISIBLE);
             copyButton.setVisibility(View.VISIBLE);
@@ -226,7 +226,7 @@ public class MainActivity extends Activity {
         clipboard.setPrimaryClip(clip);
         
         Toast.makeText(this,
-            "✓ Đã sao chép mã: " + pairingCode,
+            "[OK] Da sao chep ma: " + pairingCode,
             Toast.LENGTH_SHORT).show();
         
         Log.i(TAG, "Pairing code copied: " + pairingCode);
@@ -237,11 +237,11 @@ public class MainActivity extends Activity {
      */
     private void connectToXiaozhi() {
         if (!xiaozhiBound) {
-            Toast.makeText(this, "Service chưa sẵn sàng", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Service chua san sang", Toast.LENGTH_SHORT).show();
             return;
         }
         
-        updateStatus("Đang kết nối...");
+        updateStatus("Dang ket noi...");
         connectButton.setEnabled(false);
         
         // Connect sẽ tự động gửi Authorize handshake
@@ -262,7 +262,7 @@ public class MainActivity extends Activity {
         
         checkPairingStatus();
         
-        Toast.makeText(this, "Đã reset - Vui lòng ghép nối lại", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Da reset - Vui long ghep noi lai", Toast.LENGTH_SHORT).show();
         Log.i(TAG, "Pairing reset");
     }
     
