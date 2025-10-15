@@ -96,14 +96,31 @@ public class XiaozhiConnectionService extends Service {
      * Ưu tiên Cloud, fallback sang Self-hosted nếu thất bại
      */
     public void connectToXiaozhi() {
+        // Check if paired first
+        if (!PairingCodeGenerator.isPaired(this)) {
+            Log.w(TAG, "Device not paired yet. Please complete pairing first.");
+            if (callback != null) {
+                callback.onError("Device not paired. Please complete pairing in MainActivity.");
+            }
+            return;
+        }
+        
         useCloudMode = config.isUseCloud();
         String url = useCloudMode ? config.getCloudUrl() : config.getSelfHostedUrl();
+        
+        // Get auth token from pairing
+        String authToken = PairingCodeGenerator.getAuthToken(this);
+        if (authToken != null && !authToken.isEmpty()) {
+            // Append token to URL
+            url += "?token=" + authToken;
+            Log.d(TAG, "Connecting with auth token");
+        }
         
         Log.d(TAG, "Connecting to Xiaozhi: " + url + " (Cloud: " + useCloudMode + ")");
         
         Request.Builder requestBuilder = new Request.Builder().url(url);
         
-        // Add API key if available and using cloud
+        // Add API key if available and using cloud (fallback)
         if (useCloudMode && !config.getApiKey().isEmpty()) {
             requestBuilder.addHeader("Authorization", "Bearer " + config.getApiKey());
         }
@@ -179,11 +196,10 @@ public class XiaozhiConnectionService extends Service {
     
     /**
      * Send initial handshake to Xiaozhi server
-     * Bao gồm pairing code và device ID để server identify thiết bị
+     * Với token-based auth, handshake đơn giản hơn
      */
     private void sendHandshake() {
         try {
-            String pairingCode = PairingCodeGenerator.getPairingCode(this);
             String deviceId = PairingCodeGenerator.getDeviceId(this);
             
             JSONObject handshake = new JSONObject();
@@ -191,10 +207,9 @@ public class XiaozhiConnectionService extends Service {
             handshake.put("version", "1.0");
             handshake.put("device", "Phicomm R1");
             handshake.put("device_id", deviceId);
-            handshake.put("pairing_code", pairingCode);
             handshake.put("wake_word", config.getWakeWord());
             
-            Log.d(TAG, "Sending handshake with pairing code: " + pairingCode);
+            Log.d(TAG, "Sending handshake for device: " + deviceId);
             sendMessage(handshake.toString());
         } catch (JSONException e) {
             Log.e(TAG, "Error creating handshake", e);

@@ -101,7 +101,10 @@ public class HTTPServerService extends Service {
         }
         
         private Response serveHomePage() {
-            String pairingCode = PairingCodeGenerator.getPairingCode(HTTPServerService.this);
+            String pairingCode = PairingCodeGenerator.getCachedPairingCode(HTTPServerService.this);
+            if (pairingCode == null) {
+                pairingCode = "Loading...";
+            }
             String deviceId = PairingCodeGenerator.getDeviceId(HTTPServerService.this);
             
             String html = "<html><head>" +
@@ -153,37 +156,48 @@ public class HTTPServerService extends Service {
         }
         
         private Response servePairingCode() {
-            String pairingCode = PairingCodeGenerator.getPairingCode(HTTPServerService.this);
+            String pairingCode = PairingCodeGenerator.getCachedPairingCode(HTTPServerService.this);
+            if (pairingCode == null) {
+                pairingCode = "not_registered";
+            }
             String deviceId = PairingCodeGenerator.getDeviceId(HTTPServerService.this);
+            boolean isPaired = PairingCodeGenerator.isPaired(HTTPServerService.this);
             
             String json = "{" +
                 "\"pairing_code\":\"" + pairingCode + "\"," +
                 "\"pairing_code_formatted\":\"" + PairingCodeGenerator.formatPairingCode(pairingCode) + "\"," +
                 "\"device_id\":\"" + deviceId + "\"," +
                 "\"device\":\"Phicomm R1\"," +
-                "\"wake_word\":\"" + config.getWakeWord() + "\"" +
+                "\"wake_word\":\"" + config.getWakeWord() + "\"," +
+                "\"is_paired\":" + isPaired +
                 "}";
             
             return newFixedLengthResponse(Response.Status.OK, "application/json", json);
         }
         
         private Response serveResetPairing() {
-            // Reset pairing code
-            String newCode = PairingCodeGenerator.resetPairingCode(HTTPServerService.this);
-            String deviceId = PairingCodeGenerator.getDeviceId(HTTPServerService.this);
+            // Reset pairing - this is async, so return immediate response
+            Log.i(TAG, "Resetting pairing...");
+            
+            PairingCodeGenerator.resetPairing(HTTPServerService.this, new PairingCodeGenerator.PairingCallback() {
+                @Override
+                public void onSuccess(String code) {
+                    Log.i(TAG, "===========================================");
+                    Log.i(TAG, "PAIRING CODE RESET SUCCESSFUL");
+                    Log.i(TAG, "NEW CODE: " + code);
+                    Log.i(TAG, "===========================================");
+                }
+                
+                @Override
+                public void onError(String error) {
+                    Log.e(TAG, "Failed to reset pairing: " + error);
+                }
+            });
             
             String json = "{" +
                 "\"status\":\"success\"," +
-                "\"message\":\"Pairing code reset successfully\"," +
-                "\"new_pairing_code\":\"" + newCode + "\"," +
-                "\"pairing_code_formatted\":\"" + PairingCodeGenerator.formatPairingCode(newCode) + "\"," +
-                "\"device_id\":\"" + deviceId + "\"" +
+                "\"message\":\"Pairing reset initiated. New code will be generated shortly.\"" +
                 "}";
-            
-            Log.i(TAG, "===========================================");
-            Log.i(TAG, "PAIRING CODE RESET");
-            Log.i(TAG, "NEW CODE: " + newCode);
-            Log.i(TAG, "===========================================");
             
             return newFixedLengthResponse(Response.Status.OK, "application/json", json);
         }

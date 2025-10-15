@@ -174,6 +174,23 @@ public class PairingCodeGenerator {
     }
     
     /**
+     * Lấy cached pairing code (synchronous) - dùng cho display only
+     * KHÔNG register với API, chỉ đọc từ cache
+     * Trả về null nếu chưa có cache
+     */
+    public static String getCachedPairingCode(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String code = prefs.getString(KEY_PAIRING_CODE, null);
+        long expiresAt = prefs.getLong(KEY_CODE_EXPIRES, 0);
+        
+        // Check còn valid không
+        if (code != null && System.currentTimeMillis() < expiresAt) {
+            return code;
+        }
+        return null;
+    }
+    
+    /**
      * Lấy Device ID duy nhất cho thiết bị
      * Ưu tiên: WiFi MAC > Android ID
      * Format: AABBCCDDEEFF (giống ESP32)
