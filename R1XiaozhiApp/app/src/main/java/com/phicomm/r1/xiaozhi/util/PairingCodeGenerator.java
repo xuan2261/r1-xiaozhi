@@ -4,34 +4,146 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
+import android.os.AsyncTask;
 import android.provider.Settings;
 import android.util.Log;
 
+import com.phicomm.r1.xiaozhi.api.XiaozhiApiClient;
+import com.phicomm.r1.xiaozhi.api.model.DeviceStatus;
+import com.phicomm.r1.xiaozhi.api.model.PairingResponse;
+
 /**
- * Generator cho mã pairing dựa trên Device ID (giống xiaozhi-esp32)
- * Pairing code = 6 ký tự cuối của device_id
- * Theo: https://github.com/78/xiaozhi-esp32
+ * Quản lý pairing code từ Xiaozhi API
+ * Flow: Register device → Nhận code từ server → Poll status → Nhận token
  */
 public class PairingCodeGenerator {
     
     private static final String TAG = "PairingCode";
     private static final String PREFS_NAME = "xiaozhi_pairing";
     private static final String KEY_DEVICE_ID = "device_id";
+    private static final String KEY_PAIRING_CODE = "pairing_code";
+    private static final String KEY_AUTH_TOKEN = "auth_token";
     private static final String KEY_PAIRED = "paired";
+    private static final String KEY_CODE_EXPIRES = "code_expires_at";
     
     /**
-     * Lấy pairing code từ Device ID
-     * Pairing code = 6 ký tự cuối của device_id (theo xiaozhi-esp32 protocol)
+     * Callback cho async operations
      */
-    public static String getPairingCode(Context context) {
-        String deviceId = getDeviceId(context);
-        // Lấy 6 ký tự cuối của device ID
-        if (deviceId.length() >= 6) {
-            return deviceId.substring(deviceId.length() - 6).toUpperCase();
-        } else {
-            // Fallback nếu device ID quá ngắn
-            return String.format("%06d", deviceId.hashCode() & 0xFFFFFF);
+    public interface PairingCallback {
+        void onSuccess(String code);
+        void onError(String error);
+    }
+    
+    public interface StatusCallback {
+        void onPaired(String token);
+        void onPending();
+        void onError(String error);
+    }
+    
+    /**
+     * Lấy pairing code (từ cache hoặc register mới)
+     * ASYNC operation - dùng callback để nhận kết quả
+     */
+    public static void getPairingCode(Context context, PairingCallback callback) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String cachedCode = prefs.getString(KEY_PAIRING_CODE, null);
+        long expiresAt = prefs.getLong(KEY_CODE_EXPIRES, 0);
+        
+        // Check cached code còn valid không
+        if (cachedCode != null && System.currentTimeMillis() < expiresAt) {
+            Log.d(TAG, "Using cached pairing code: " + cachedCode);
+            callback.onSuccess(cachedCode);
+            return;
         }
+        
+        // Code hết hạn hoặc chưa có → register mới
+        Log.i(TAG, "Registering device to get new pairing code");
+        registerDeviceAsync(context, callback);
+    }
+    
+    /**
+     * Register device với Xiaozhi API (async)
+     */
+    private static void registerDeviceAsync(final Context context, final PairingCallback callback) {
+        new AsyncTask<Void, Void, PairingResponse>() {
+            private Exception error;
+            
+            @Override
+            protected PairingResponse doInBackground(Void... params) {
+                try {
+                    String deviceId = getDeviceId(context);
+                    XiaozhiApiClient client = new XiaozhiApiClient();
+                    return client.registerDevice(deviceId, "android_r1");
+                } catch (Exception e) {
+                    error = e;
+                    return null;
+                }
+            }
+            
+            @Override
+            protected void onPostExecute(PairingResponse response) {
+                if (response != null) {
+                    // Lưu code vào cache
+                    SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                    prefs.edit()
+                        .putString(KEY_PAIRING_CODE, response.getCode())
+                        .putLong(KEY_CODE_EXPIRES, response.getExpiresAt())
+                        .apply();
+                    
+                    Log.i(TAG, "Pairing code received: " + response.getCode());
+                    callback.onSuccess(response.getCode());
+                } else {
+                    String errorMsg = error != null ? error.getMessage() : "Unknown error";
+                    Log.e(TAG, "Failed to register device: " + errorMsg);
+                    callback.onError(errorMsg);
+                }
+            }
+        }.execute();
+    }
+    
+    /**
+     * Check pairing status (async)
+     * Poll này để xem user đã nhập code vào console chưa
+     */
+    public static void checkPairingStatus(final Context context, final StatusCallback callback) {
+        new AsyncTask<Void, Void, DeviceStatus>() {
+            private Exception error;
+            
+            @Override
+            protected DeviceStatus doInBackground(Void... params) {
+                try {
+                    String deviceId = getDeviceId(context);
+                    XiaozhiApiClient client = new XiaozhiApiClient();
+                    return client.checkPairingStatus(deviceId);
+                } catch (Exception e) {
+                    error = e;
+                    return null;
+                }
+            }
+            
+            @Override
+            protected void onPostExecute(DeviceStatus status) {
+                if (status != null) {
+                    if (status.isPaired()) {
+                        // Paired! Lưu token
+                        saveAuthToken(context, status.getToken());
+                        markAsPaired(context);
+                        Log.i(TAG, "Device paired successfully!");
+                        callback.onPaired(status.getToken());
+                    } else if (status.isPending()) {
+                        Log.d(TAG, "Pairing still pending");
+                        callback.onPending();
+                    } else {
+                        Log.w(TAG, "Pairing status: " + status.getStatus());
+                        callback.onError("Status: " + status.getStatus());
+                    }
+                } else {
+                    String errorMsg = error != null ? error.getMessage() : "Unknown error";
+                    Log.e(TAG, "Failed to check status: " + errorMsg);
+                    callback.onError(errorMsg);
+                }
+            }
+        }.execute();
     }
     
     /**
@@ -42,6 +154,23 @@ public class PairingCodeGenerator {
             return code;
         }
         return code.substring(0, 2) + " " + code.substring(2, 4) + " " + code.substring(4, 6);
+    }
+    
+    /**
+     * Lưu auth token sau khi paired
+     */
+    private static void saveAuthToken(Context context, String token) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putString(KEY_AUTH_TOKEN, token).apply();
+        Log.d(TAG, "Auth token saved");
+    }
+    
+    /**
+     * Lấy auth token đã lưu
+     */
+    public static String getAuthToken(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getString(KEY_AUTH_TOKEN, null);
     }
     
     /**
@@ -116,41 +245,33 @@ public class PairingCodeGenerator {
      */
     public static boolean isPaired(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        return prefs.getBoolean(KEY_PAIRED, false);
+        boolean paired = prefs.getBoolean(KEY_PAIRED, false);
+        String token = prefs.getString(KEY_AUTH_TOKEN, null);
+        return paired && token != null;
     }
     
     /**
      * Đánh dấu thiết bị đã pair thành công
      */
-    public static void markAsPaired(Context context) {
+    private static void markAsPaired(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         prefs.edit().putBoolean(KEY_PAIRED, true).apply();
         Log.i(TAG, "Device marked as paired");
     }
     
     /**
-     * Reset device ID và pairing code
-     * CHÚ Ý: Pairing code được tính từ device ID, nên reset device ID sẽ tạo code mới
+     * Reset pairing - xóa tất cả data và register lại
      */
-    public static String resetPairingCode(Context context) {
+    public static void resetPairing(Context context, PairingCallback callback) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        // Xóa device ID cũ và paired status
         prefs.edit()
-            .remove(KEY_DEVICE_ID)
+            .remove(KEY_PAIRING_CODE)
+            .remove(KEY_AUTH_TOKEN)
             .remove(KEY_PAIRED)
+            .remove(KEY_CODE_EXPIRES)
             .apply();
         
-        // Generate device ID mới (sẽ dùng thời gian hiện tại)
-        String newDeviceId = generateDeviceId(context);
-        prefs.edit().putString(KEY_DEVICE_ID, newDeviceId).apply();
-        
-        String newCode = getPairingCode(context);
-        Log.i(TAG, "===========================================");
-        Log.i(TAG, "RESET PAIRING");
-        Log.i(TAG, "New Device ID: " + newDeviceId);
-        Log.i(TAG, "New Pairing Code: " + newCode);
-        Log.i(TAG, "===========================================");
-        
-        return newCode;
+        Log.i(TAG, "Pairing reset - registering new device");
+        getPairingCode(context, callback);
     }
 }

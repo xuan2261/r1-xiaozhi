@@ -46,6 +46,11 @@ public class MainActivity extends Activity {
     private boolean voiceServiceBound = false;
     private boolean ledServiceBound = false;
     
+    // Polling for pairing status
+    private Handler pollingHandler;
+    private Runnable pollingRunnable;
+    private static final int POLLING_INTERVAL = 3000; // 3 seconds
+    
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -56,6 +61,15 @@ public class MainActivity extends Activity {
         initViews();
         bindServices();
         updateUI();
+        
+        // Nếu chưa paired, bắt đầu fetch pairing code và poll
+        if (!PairingCodeGenerator.isPaired(this)) {
+            fetchPairingCodeAndStartPolling();
+        } else {
+            // Đã paired, hiển thị status
+            pairingCodeText.setText("Status: Already paired\nDevice ID: " + 
+                PairingCodeGenerator.getDeviceId(this));
+        }
         
         Log.d(TAG, "MainActivity created");
     }
@@ -68,15 +82,8 @@ public class MainActivity extends Activity {
         stopButton = (Button) findViewById(R.id.stop_button);
         settingsButton = (Button) findViewById(R.id.settings_button);
         
-        // Hiển thị pairing code
-        String pairingCode = PairingCodeGenerator.getPairingCode(this);
-        String deviceId = PairingCodeGenerator.getDeviceId(this);
-        pairingCodeText.setText("Pairing Code: " + PairingCodeGenerator.formatPairingCode(pairingCode) +
-                               "\nDevice ID: " + deviceId);
-        Log.i(TAG, "===========================================");
-        Log.i(TAG, "XIAOZHI PAIRING CODE: " + pairingCode);
-        Log.i(TAG, "Device ID: " + deviceId);
-        Log.i(TAG, "===========================================");
+        // Pairing code sẽ được load async
+        pairingCodeText.setText("Loading...");
         
         startButton.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -104,20 +111,152 @@ public class MainActivity extends Activity {
         resetPairingButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                // Reset pairing code
-                String newCode = PairingCodeGenerator.resetPairingCode(MainActivity.this);
-                String newDeviceId = PairingCodeGenerator.getDeviceId(MainActivity.this);
-                pairingCodeText.setText("Pairing Code: " + PairingCodeGenerator.formatPairingCode(newCode) +
-                                       "\nDevice ID: " + newDeviceId);
-                Log.i(TAG, "===========================================");
-                Log.i(TAG, "NEW PAIRING CODE: " + newCode);
-                Log.i(TAG, "Device ID: " + newDeviceId);
-                Log.i(TAG, "===========================================");
+                pairingCodeText.setText("Resetting...");
+                stopPolling();
                 
-                // Show toast (if available in API 22)
-                android.widget.Toast.makeText(MainActivity.this,
-                    "New Pairing Code: " + PairingCodeGenerator.formatPairingCode(newCode),
-                    android.widget.Toast.LENGTH_LONG).show();
+                PairingCodeGenerator.resetPairing(MainActivity.this, new PairingCodeGenerator.PairingCallback() {
+                    @Override
+                    public void onSuccess(String code) {
+                        String deviceId = PairingCodeGenerator.getDeviceId(MainActivity.this);
+                        pairingCodeText.setText("Pairing Code: " + PairingCodeGenerator.formatPairingCode(code) +
+                                               "\nDevice ID: " + deviceId +
+                                               "\nStatus: Waiting for user...");
+                        
+                        android.widget.Toast.makeText(MainActivity.this,
+                            "New Code: " + PairingCodeGenerator.formatPairingCode(code),
+                            android.widget.Toast.LENGTH_LONG).show();
+                        
+                        // Start polling lại
+                        startPolling();
+                    }
+                    
+                    @Override
+                    public void onError(String error) {
+                        pairingCodeText.setText("Error: " + error);
+                        android.widget.Toast.makeText(MainActivity.this,
+                            "Reset failed: " + error,
+                            android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+        });
+    }
+    
+    /**
+     * Fetch pairing code từ API và bắt đầu polling
+     */
+    private void fetchPairingCodeAndStartPolling() {
+        pairingCodeText.setText("Registering device...");
+        
+        PairingCodeGenerator.getPairingCode(this, new PairingCodeGenerator.PairingCallback() {
+            @Override
+            public void onSuccess(final String code) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        String deviceId = PairingCodeGenerator.getDeviceId(MainActivity.this);
+                        pairingCodeText.setText("Pairing Code: " + PairingCodeGenerator.formatPairingCode(code) +
+                                               "\nDevice ID: " + deviceId +
+                                               "\nStatus: Waiting for user...");
+                        
+                        Log.i(TAG, "===========================================");
+                        Log.i(TAG, "PAIRING CODE: " + code);
+                        Log.i(TAG, "Device ID: " + deviceId);
+                        Log.i(TAG, "Please enter this code in Xiaozhi Console");
+                        Log.i(TAG, "===========================================");
+                        
+                        // Bắt đầu poll status
+                        startPolling();
+                    }
+                });
+            }
+            
+            @Override
+            public void onError(final String error) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        pairingCodeText.setText("Error getting code: " + error);
+                        Log.e(TAG, "Failed to get pairing code: " + error);
+                    }
+                });
+            }
+        });
+    }
+    
+    /**
+     * Bắt đầu poll pairing status
+     */
+    private void startPolling() {
+        if (pollingHandler != null) {
+            return; // Already polling
+        }
+        
+        Log.d(TAG, "Starting pairing status polling");
+        pollingHandler = new Handler();
+        pollingRunnable = new Runnable() {
+            @Override
+            public void run() {
+                checkPairingStatus();
+                if (pollingHandler != null) {
+                    pollingHandler.postDelayed(this, POLLING_INTERVAL);
+                }
+            }
+        };
+        pollingHandler.post(pollingRunnable);
+    }
+    
+    /**
+     * Dừng polling
+     */
+    private void stopPolling() {
+        if (pollingHandler != null && pollingRunnable != null) {
+            pollingHandler.removeCallbacks(pollingRunnable);
+            pollingHandler = null;
+            pollingRunnable = null;
+            Log.d(TAG, "Polling stopped");
+        }
+    }
+    
+    /**
+     * Check pairing status với API
+     */
+    private void checkPairingStatus() {
+        PairingCodeGenerator.checkPairingStatus(this, new PairingCodeGenerator.StatusCallback() {
+            @Override
+            public void onPaired(final String token) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        stopPolling();
+                        pairingCodeText.append("\nStatus: ✓ PAIRED!");
+                        connectionStatusText.setText("Paired! Token received");
+                        
+                        Log.i(TAG, "===========================================");
+                        Log.i(TAG, "DEVICE PAIRED SUCCESSFULLY!");
+                        Log.i(TAG, "Token: " + token.substring(0, Math.min(10, token.length())) + "...");
+                        Log.i(TAG, "===========================================");
+                        
+                        android.widget.Toast.makeText(MainActivity.this,
+                            "Paired successfully!",
+                            android.widget.Toast.LENGTH_LONG).show();
+                        
+                        // Có thể tự động start services
+                        // startServices();
+                    }
+                });
+            }
+            
+            @Override
+            public void onPending() {
+                // Still waiting - do nothing, will check again
+                Log.d(TAG, "Pairing still pending...");
+            }
+            
+            @Override
+            public void onError(final String error) {
+                Log.w(TAG, "Check status error: " + error);
+                // Continue polling despite errors
             }
         });
     }
@@ -152,9 +291,6 @@ public class MainActivity extends Activity {
                         public void run() {
                             connectionStatusText.setText("Đã kết nối: " +
                                 (isCloud ? "Cloud" : "Self-hosted"));
-                            
-                            // Mark as paired khi connect thành công
-                            PairingCodeGenerator.markAsPaired(MainActivity.this);
                         }
                     });
                 }
@@ -333,6 +469,9 @@ public class MainActivity extends Activity {
         if (ledServiceBound) {
             unbindService(ledConnection);
         }
+        
+        // Stop polling
+        stopPolling();
         
         super.onDestroy();
         Log.d(TAG, "MainActivity destroyed");
