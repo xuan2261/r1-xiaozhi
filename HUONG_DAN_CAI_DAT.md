@@ -100,22 +100,83 @@ gradlew.bat clean build  # Windows
 # app/build/outputs/apk/release/app-release.apk
 ```
 
-## Bước 3: Cấu hình Xiaozhi
+## Bước 3: Thiết lập Xiaozhi Cloud
 
-### 3.1. Chọn mode kết nối
+### 3.1. Đăng ký tài khoản Xiaozhi
+
+1. **Truy cập** https://xiaozhi.me/
+2. **Đăng ký** tài khoản mới
+3. **Đăng nhập** và chọn **Console**
+
+### 3.2. Tạo Agent (Trợ lý AI)
+
+1. Trong Console, click **"Create Agent"** ở góc trên bên phải
+2. Đặt tên cho Agent (ví dụ: "R1 Assistant")
+3. Cấu hình Agent:
+
+```
+Dialogue Language: Vietnamese
+Voice Role: Giọng nữ (hoặc giọng nam tùy thích)
+Role Introduction:
+  Tôi là {{assistant_name}}, trợ lý ảo thông minh trên loa Phicomm R1.
+  Tôi có giọng nói dễ nghe, thích dùng câu ngắn gọn và luôn sẵn sàng giúp đỡ bạn.
+```
+
+4. **Lưu cấu hình**
+
+### 3.3. Thêm thiết bị R1 vào Agent
+
+1. Trong Agent vừa tạo, click **"Manage Devices"** (hoặc "Add Device" nếu chưa có thiết bị)
+2. Hệ thống sẽ hiển thị form yêu cầu **6 chữ số pairing code**
+3. **GIỮ trang này mở** - chúng ta sẽ lấy mã từ R1 ở bước sau
+
+### 3.4. Lấy mã pairing từ R1
+
+Sau khi cài app lên R1 (Bước 4), app sẽ tự động tạo và hiển thị **mã 6 số**:
+
+**Cách 1: Xem qua ADB log**
+```bash
+# Xem log để tìm pairing code
+adb logcat | grep "Pairing Code"
+
+# Output sẽ có dạng:
+# XiaozhiConnection: Pairing Code: 123456
+```
+
+**Cách 2: Xem qua HTTP API**
+```bash
+# Truy cập từ browser hoặc curl
+curl http://192.168.1.XXX:8088/pairing
+
+# Hoặc mở trình duyệt: http://192.168.1.XXX:8088/pairing
+```
+
+**Cách 3: Xem trên màn hình (nếu R1 có output HDMI)**
+- App sẽ hiển thị mã pairing lớn trên màn hình
+
+### 3.5. Hoàn tất pairing
+
+1. Copy **mã 6 số** từ R1
+2. Quay lại trang Xiaozhi Console
+3. Nhập mã vào form "Add Device"
+4. Click **"Add"** hoặc **"Pair Device"**
+5. ✅ **Thành công!** R1 của bạn đã được kết nối với Xiaozhi Cloud
+
+### 3.6. Chọn mode kết nối
 
 Bạn có 2 lựa chọn:
 
-**Option A: Sử dụng Xiaozhi Cloud (Đơn giản)**
+**Option A: Sử dụng Xiaozhi Cloud (Khuyến nghị - đã setup ở trên)**
 - URL: `wss://xiaozhi.me/websocket`
-- Đăng ký tài khoản tại https://xiaozhi.me
-- Lấy API key (nếu cần)
+- Đã đăng ký và pair thiết bị
+- Không cần tự host server
 
-**Option B: Self-hosted Xiaozhi Server**
+**Option B: Self-hosted Xiaozhi Server (Advanced)**
 - Cài đặt server theo hướng dẫn: https://stable-learn.com/en/py-xiaozhi-guide/
 - URL: `ws://YOUR_SERVER_IP:8080/websocket`
+- Cần kiến thức về server hosting
 
-### 3.2. Sửa cấu hình mặc định (Optional)
+### 3.7. Sửa cấu hình mặc định (Optional)
 
 Mở file [`XiaozhiConfig.java`](R1XiaozhiApp/app/src/main/java/com/phicomm/r1/xiaozhi/config/XiaozhiConfig.java:25) và sửa:
 

@@ -17,6 +17,7 @@ import com.phicomm.r1.xiaozhi.config.XiaozhiConfig;
 import com.phicomm.r1.xiaozhi.service.LEDControlService;
 import com.phicomm.r1.xiaozhi.service.VoiceRecognitionService;
 import com.phicomm.r1.xiaozhi.service.XiaozhiConnectionService;
+import com.phicomm.r1.xiaozhi.util.PairingCodeGenerator;
 
 /**
  * Main Activity - Giao diện chính
@@ -29,6 +30,7 @@ public class MainActivity extends Activity {
     private XiaozhiConfig config;
     private TextView statusText;
     private TextView connectionStatusText;
+    private TextView pairingCodeText;
     private Button startButton;
     private Button stopButton;
     private Button settingsButton;
@@ -59,9 +61,20 @@ public class MainActivity extends Activity {
     private void initViews() {
         statusText = (TextView) findViewById(R.id.status_text);
         connectionStatusText = (TextView) findViewById(R.id.connection_status_text);
+        pairingCodeText = (TextView) findViewById(R.id.pairing_code_text);
         startButton = (Button) findViewById(R.id.start_button);
         stopButton = (Button) findViewById(R.id.stop_button);
         settingsButton = (Button) findViewById(R.id.settings_button);
+        
+        // Hiển thị pairing code
+        String pairingCode = PairingCodeGenerator.getPairingCode(this);
+        String deviceId = PairingCodeGenerator.getDeviceId(this);
+        pairingCodeText.setText("Pairing Code: " + PairingCodeGenerator.formatPairingCode(pairingCode) +
+                               "\nDevice ID: " + deviceId);
+        Log.i(TAG, "===========================================");
+        Log.i(TAG, "XIAOZHI PAIRING CODE: " + pairingCode);
+        Log.i(TAG, "Device ID: " + deviceId);
+        Log.i(TAG, "===========================================");
         
         startButton.setOnClickListener(new View.OnClickListener() {
             @Override

@@ -9,6 +9,7 @@ import android.util.Base64;
 import android.util.Log;
 
 import com.phicomm.r1.xiaozhi.config.XiaozhiConfig;
+import com.phicomm.r1.xiaozhi.util.PairingCodeGenerator;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -178,15 +179,22 @@ public class XiaozhiConnectionService extends Service {
     
     /**
      * Send initial handshake to Xiaozhi server
+     * Bao gồm pairing code và device ID để server identify thiết bị
      */
     private void sendHandshake() {
         try {
+            String pairingCode = PairingCodeGenerator.getPairingCode(this);
+            String deviceId = PairingCodeGenerator.getDeviceId(this);
+            
             JSONObject handshake = new JSONObject();
             handshake.put("type", "handshake");
             handshake.put("version", "1.0");
             handshake.put("device", "Phicomm R1");
+            handshake.put("device_id", deviceId);
+            handshake.put("pairing_code", pairingCode);
             handshake.put("wake_word", config.getWakeWord());
             
+            Log.d(TAG, "Sending handshake with pairing code: " + pairingCode);
             sendMessage(handshake.toString());
         } catch (JSONException e) {
             Log.e(TAG, "Error creating handshake", e);

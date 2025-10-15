@@ -13,42 +13,73 @@
         android:text="Xiaozhi Voice Assistant"
         android:textSize="24sp"
         android:textStyle="bold"
-        android:layout_marginBottom="32dp" />
+        android:layout_marginBottom="20dp"/>
+
+    <TextView
+        android:id="@+id/pairing_code_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Pairing Code: ---"
+        android:textSize="20sp"
+        android:textColor="#4CAF50"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:background="#F0F0F0"
+        android:padding="20dp"
+        android:layout_marginBottom="20dp"/>
 
     <TextView
         android:id="@+id/status_text"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Trạng thái: Chưa khởi động"
+        android:text="Status: Idle"
         android:textSize="16sp"
-        android:layout_marginBottom="16dp" />
+        android:layout_marginBottom="10dp"/>
 
     <TextView
         android:id="@+id/connection_status_text"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Kết nối: Không"
+        android:text="Connection: Not connected"
         android:textSize="16sp"
-        android:layout_marginBottom="32dp" />
+        android:layout_marginBottom="20dp"/>
 
-    <Button
-        android:id="@+id/start_button"
-        android:layout_width="200dp"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Khởi động"
-        android:layout_marginBottom="16dp" />
+        android:orientation="horizontal"
+        android:gravity="center">
 
-    <Button
-        android:id="@+id/stop_button"
-        android:layout_width="200dp"
-        android:layout_height="wrap_content"
-        android:text="Dừng"
-        android:layout_marginBottom="16dp" />
+        <Button
+            android:id="@+id/start_button"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Start"
+            android:layout_marginRight="5dp"/>
+
+        <Button
+            android:id="@+id/stop_button"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Stop"
+            android:layout_marginLeft="5dp"/>
+    </LinearLayout>
 
     <Button
         android:id="@+id/settings_button"
-        android:layout_width="200dp"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Cài đặt" />
+        android:text="Settings"
+        android:layout_marginTop="10dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="HTTP Server: http://[R1_IP]:8088"
+        android:textSize="12sp"
+        android:textColor="#999"
+        android:layout_marginTop="30dp"/>
 
 </LinearLayout>
