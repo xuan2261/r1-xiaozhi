@@ -51,40 +51,52 @@ public class MainActivity extends Activity {
             xiaozhiService.setConnectionListener(new XiaozhiConnectionService.ConnectionListener() {
                 @Override
                 public void onConnected() {
-                    runOnUiThread(() -> {
-                        updateStatus("Đã kết nối - Đang xác thực...");
-                        connectButton.setEnabled(false);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            updateStatus("Đã kết nối - Đang xác thực...");
+                            connectButton.setEnabled(false);
+                        }
                     });
                 }
                 
                 @Override
                 public void onDisconnected() {
-                    runOnUiThread(() -> {
-                        updateStatus("Mất kết nối");
-                        connectButton.setEnabled(true);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            updateStatus("Mất kết nối");
+                            connectButton.setEnabled(true);
+                        }
                     });
                 }
                 
                 @Override
                 public void onPairingSuccess() {
-                    runOnUiThread(() -> {
-                        updateStatus("✓ Đã ghép nối thành công!");
-                        Toast.makeText(MainActivity.this, 
-                            "Pairing thành công! Có thể dùng giọng nói.", 
-                            Toast.LENGTH_LONG).show();
-                        pairingCodeText.setText("Đã ghép nối");
-                        connectButton.setEnabled(false);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            updateStatus("✓ Đã ghép nối thành công!");
+                            Toast.makeText(MainActivity.this,
+                                "Pairing thành công! Có thể dùng giọng nói.",
+                                Toast.LENGTH_LONG).show();
+                            pairingCodeText.setText("Đã ghép nối");
+                            connectButton.setEnabled(false);
+                        }
                     });
                 }
                 
                 @Override
-                public void onPairingFailed(String error) {
-                    runOnUiThread(() -> {
-                        updateStatus("✗ Ghép nối thất bại: " + error);
-                        Toast.makeText(MainActivity.this, 
-                            "Pairing thất bại: " + error, 
-                            Toast.LENGTH_LONG).show();
-                        connectButton.setEnabled(true);
+                public void onPairingFailed(final String error) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            updateStatus("✗ Ghép nối thất bại: " + error);
+                            Toast.makeText(MainActivity.this,
+                                "Pairing thất bại: " + error,
+                                Toast.LENGTH_LONG).show();
+                            connectButton.setEnabled(true);
+                        }
                     });
                 }
                 
@@ -94,12 +106,15 @@ public class MainActivity extends Activity {
                 }
                 
                 @Override
-                public void onError(String error) {
-                    runOnUiThread(() -> {
-                        updateStatus("Lỗi: " + error);
-                        Toast.makeText(MainActivity.this, 
-                            "Lỗi: " + error, 
-                            Toast.LENGTH_SHORT).show();
+                public void onError(final String error) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            updateStatus("Lỗi: " + error);
+                            Toast.makeText(MainActivity.this,
+                                "Lỗi: " + error,
+                                Toast.LENGTH_SHORT).show();
+                        }
                     });
                 }
             });
