@@ -34,6 +34,7 @@ public class MainActivity extends Activity {
     private Button startButton;
     private Button stopButton;
     private Button settingsButton;
+    private Button resetPairingButton;
     
     // Service bindings
     private XiaozhiConnectionService xiaozhiService;
@@ -95,6 +96,27 @@ public class MainActivity extends Activity {
             public void onClick(View v) {
                 Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
                 startActivity(intent);
+            }
+        });
+        
+        resetPairingButton = (Button) findViewById(R.id.reset_pairing_button);
+        resetPairingButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                // Reset pairing code
+                String newCode = PairingCodeGenerator.resetPairingCode(MainActivity.this);
+                String newDeviceId = PairingCodeGenerator.getDeviceId(MainActivity.this);
+                pairingCodeText.setText("Pairing Code: " + PairingCodeGenerator.formatPairingCode(newCode) +
+                                       "\nDevice ID: " + newDeviceId);
+                Log.i(TAG, "===========================================");
+                Log.i(TAG, "NEW PAIRING CODE: " + newCode);
+                Log.i(TAG, "Device ID: " + newDeviceId);
+                Log.i(TAG, "===========================================");
+                
+                // Show toast (if available in API 22)
+                android.widget.Toast.makeText(MainActivity.this,
+                    "New Pairing Code: " + PairingCodeGenerator.formatPairingCode(newCode),
+                    android.widget.Toast.LENGTH_LONG).show();
             }
         });
     }

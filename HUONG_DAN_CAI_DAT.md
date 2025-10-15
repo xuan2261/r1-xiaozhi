@@ -161,6 +161,39 @@ curl http://192.168.1.XXX:8088/pairing
 3. Nhập mã vào form "Add Device"
 4. Click **"Add"** hoặc **"Pair Device"**
 5. ✅ **Thành công!** R1 của bạn đã được kết nối với Xiaozhi Cloud
+### 3.6. Nếu gặp lỗi "Device already added"
+
+Điều này xảy ra khi mã pairing đã được sử dụng trước đó. **Giải pháp:**
+
+**Cách 1: Reset qua App (R1 có màn hình)**
+- Mở app trên R1
+- Click nút **"Reset Pairing"**
+- Mã mới sẽ hiển thị ngay
+
+**Cách 2: Reset qua Web UI**
+```bash
+# Truy cập từ browser hoặc curl
+curl http://192.168.1.XXX:8088/reset-pairing
+
+# Output sẽ có mã mới:
+# {"status":"success","new_pairing_code":"654321",...}
+```
+
+**Cách 3: Reset qua ADB**
+```bash
+# Xóa SharedPreferences
+adb shell rm /data/data/com.phicomm.r1.xiaozhi/shared_prefs/xiaozhi_pairing.xml
+
+# Restart app
+adb shell am force-stop com.phicomm.r1.xiaozhi
+adb shell am start -n com.phicomm.r1.xiaozhi/.ui.MainActivity
+
+# Xem mã mới
+adb logcat | findstr /i "PAIRING CODE"
+```
+
+Sau khi reset, sử dụng **mã mới** để add device vào Xiaozhi Console.
+
 
 ### 3.6. Chọn mode kết nối
 

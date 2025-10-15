@@ -74,11 +74,14 @@ public class PairingCodeGenerator {
     
     /**
      * Reset pairing code (dùng khi cần pair lại với agent khác)
+     * Tạo mã mới hoàn toàn
      */
-    public static void resetPairingCode(Context context) {
+    public static String resetPairingCode(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         prefs.edit().remove(KEY_PAIRING_CODE).apply();
-        Log.d(TAG, "Pairing code reset");
+        String newCode = getPairingCode(context); // Tự động tạo mã mới
+        Log.d(TAG, "Pairing code reset to: " + newCode);
+        return newCode;
     }
     
     /**

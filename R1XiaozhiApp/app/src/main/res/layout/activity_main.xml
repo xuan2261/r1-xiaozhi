@@ -67,12 +67,29 @@
             android:layout_marginLeft="5dp"/>
     </LinearLayout>
 
-    <Button
-        android:id="@+id/settings_button"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Settings"
-        android:layout_marginTop="10dp"/>
+        android:orientation="horizontal"
+        android:layout_marginTop="10dp"
+        android:gravity="center">
+
+        <Button
+            android:id="@+id/settings_button"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Settings"
+            android:layout_marginRight="5dp"/>
+
+        <Button
+            android:id="@+id/reset_pairing_button"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Reset Pairing"
+            android:layout_marginLeft="5dp"/>
+    </LinearLayout>
 
     <TextView
         android:layout_width="wrap_content"

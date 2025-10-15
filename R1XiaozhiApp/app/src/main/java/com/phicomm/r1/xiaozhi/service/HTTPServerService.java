@@ -81,6 +81,8 @@ public class HTTPServerService extends Service {
                         return serveStatus();
                     case "/pairing":
                         return servePairingCode();
+                    case "/reset-pairing":
+                        return serveResetPairing();
                     case "/start":
                         return serveStartCommand();
                     case "/stop":
@@ -88,7 +90,7 @@ public class HTTPServerService extends Service {
                     case "/config":
                         return serveConfig();
                     default:
-                        return newFixedLengthResponse(Response.Status.NOT_FOUND, 
+                        return newFixedLengthResponse(Response.Status.NOT_FOUND,
                             MIME_PLAINTEXT, "404 Not Found");
                 }
             } catch (Exception e) {
@@ -139,6 +141,7 @@ public class HTTPServerService extends Service {
                 "<h3>🔧 Control Panel:</h3>" +
                 "<a href='/status'>Status</a>" +
                 "<a href='/pairing'>Pairing Info</a>" +
+                "<a href='/reset-pairing' style='background:#ff9800'>Reset Pairing</a>" +
                 "<a href='/config'>Config</a>" +
                 "<a href='/start'>Start</a>" +
                 "<a href='/stop'>Stop</a>" +
@@ -160,6 +163,27 @@ public class HTTPServerService extends Service {
                 "\"device\":\"Phicomm R1\"," +
                 "\"wake_word\":\"" + config.getWakeWord() + "\"" +
                 "}";
+            
+            return newFixedLengthResponse(Response.Status.OK, "application/json", json);
+        }
+        
+        private Response serveResetPairing() {
+            // Reset pairing code
+            String newCode = PairingCodeGenerator.resetPairingCode(HTTPServerService.this);
+            String deviceId = PairingCodeGenerator.getDeviceId(HTTPServerService.this);
+            
+            String json = "{" +
+                "\"status\":\"success\"," +
+                "\"message\":\"Pairing code reset successfully\"," +
+                "\"new_pairing_code\":\"" + newCode + "\"," +
+                "\"pairing_code_formatted\":\"" + PairingCodeGenerator.formatPairingCode(newCode) + "\"," +
+                "\"device_id\":\"" + deviceId + "\"" +
+                "}";
+            
+            Log.i(TAG, "===========================================");
+            Log.i(TAG, "PAIRING CODE RESET");
+            Log.i(TAG, "NEW CODE: " + newCode);
+            Log.i(TAG, "===========================================");
             
             return newFixedLengthResponse(Response.Status.OK, "application/json", json);
         }
