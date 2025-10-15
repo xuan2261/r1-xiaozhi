@@ -3,56 +3,30 @@ package com.phicomm.r1.xiaozhi.service;
 import android.app.Service;
 import android.content.Intent;
 import android.os.Binder;
-import android.os.Handler;
 import android.os.IBinder;
-import android.util.Base64;
 import android.util.Log;
 
 import com.phicomm.r1.xiaozhi.config.XiaozhiConfig;
 import com.phicomm.r1.xiaozhi.util.PairingCodeGenerator;
 
+import org.java_websocket.client.WebSocketClient;
+import org.java_websocket.handshake.ServerHandshake;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.IOException;
-import java.util.concurrent.TimeUnit;
-
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
-import okhttp3.WebSocket;
-import okhttp3.WebSocketListener;
-import okio.ByteString;
+import java.net.URI;
+import java.util.UUID;
 
 /**
- * Service kết nối với Xiaozhi API (Cloud hoặc Self-hosted)
- * Hỗ trợ tự động fallback từ Cloud sang Self-hosted khi cần
+ * Service quản lý kết nối WebSocket với Xiaozhi Cloud
+ * Theo chuẩn xiaozhi-esp32: wss://xiaozhi.me/v1/ws + Authorize handshake
  */
 public class XiaozhiConnectionService extends Service {
     
     private static final String TAG = "XiaozhiConnection";
-    private static final int RECONNECT_DELAY = 5000; // 5 seconds
-    private static final int MAX_RETRY_ATTEMPTS = 3;
-    
-    private WebSocket webSocket;
-    private OkHttpClient client;
-    private XiaozhiConfig config;
-    private boolean isConnected = false;
-    private boolean useCloudMode = true;
-    private int retryAttempts = 0;
-    private Handler reconnectHandler;
-    
-    private ConnectionCallback callback;
-    
-    public interface ConnectionCallback {
-        void onConnected(boolean isCloud);
-        void onDisconnected();
-        void onMessageReceived(String message);
-        void onAudioReceived(String audioUrl);
-        void onError(String error);
-    }
-    
+    private WebSocketClient webSocketClient;
     private final IBinder binder = new LocalBinder();
+    private ConnectionListener connectionListener;
     
     public class LocalBinder extends Binder {
         public XiaozhiConnectionService getService() {
@@ -60,26 +34,13 @@ public class XiaozhiConnectionService extends Service {
         }
     }
     
-    @Override
-    public void onCreate() {
-        super.onCreate();
-        config = new XiaozhiConfig(this);
-        reconnectHandler = new Handler();
-        
-        client = new OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(0, TimeUnit.MINUTES) // No timeout for WebSocket
-            .writeTimeout(10, TimeUnit.SECONDS)
-            .pingInterval(30, TimeUnit.SECONDS)
-            .build();
-            
-        Log.d(TAG, "XiaozhiConnectionService created");
-    }
-    
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        connectToXiaozhi();
-        return START_STICKY;
+    public interface ConnectionListener {
+        void onConnected();
+        void onDisconnected();
+        void onPairingSuccess();
+        void onPairingFailed(String error);
+        void onMessage(String message);
+        void onError(String error);
     }
     
     @Override
@@ -87,328 +48,257 @@ public class XiaozhiConnectionService extends Service {
         return binder;
     }
     
-    public void setCallback(ConnectionCallback callback) {
-        this.callback = callback;
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        Log.i(TAG, "Service started");
+        return START_STICKY;
+    }
+    
+    public void setConnectionListener(ConnectionListener listener) {
+        this.connectionListener = listener;
     }
     
     /**
-     * Kết nối đến Xiaozhi API
-     * Ưu tiên Cloud, fallback sang Self-hosted nếu thất bại
+     * Connect và gửi Authorize handshake
+     * Theo ESP32: connect đơn giản, KHÔNG có token trong URL
      */
-    public void connectToXiaozhi() {
-        // Check if paired first
-        if (!PairingCodeGenerator.isPaired(this)) {
-            Log.w(TAG, "Device not paired yet. Please complete pairing first.");
-            if (callback != null) {
-                callback.onError("Device not paired. Please complete pairing in MainActivity.");
-            }
+    public void connect() {
+        if (webSocketClient != null && webSocketClient.isOpen()) {
+            Log.w(TAG, "Already connected");
             return;
         }
         
-        useCloudMode = config.isUseCloud();
-        String url = useCloudMode ? config.getCloudUrl() : config.getSelfHostedUrl();
-        
-        // Get auth token from pairing
-        String authToken = PairingCodeGenerator.getAuthToken(this);
-        if (authToken != null && !authToken.isEmpty()) {
-            // Append token to URL
-            url += "?token=" + authToken;
-            Log.d(TAG, "Connecting with auth token");
+        try {
+            // WebSocket URL đơn giản - KHÔNG có token!
+            URI serverUri = new URI(XiaozhiConfig.WEBSOCKET_URL);
+            Log.i(TAG, "Connecting to: " + serverUri);
+            
+            webSocketClient = new WebSocketClient(serverUri) {
+                @Override
+                public void onOpen(ServerHandshake handshakedata) {
+                    Log.i(TAG, "WebSocket connected");
+                    if (connectionListener != null) {
+                        connectionListener.onConnected();
+                    }
+                    
+                    // Gửi Authorize handshake ngay sau khi connect
+                    sendAuthorizeHandshake();
+                }
+                
+                @Override
+                public void onMessage(String message) {
+                    Log.d(TAG, "Message received: " + message);
+                    handleMessage(message);
+                    
+                    if (connectionListener != null) {
+                        connectionListener.onMessage(message);
+                    }
+                }
+                
+                @Override
+                public void onClose(int code, String reason, boolean remote) {
+                    Log.w(TAG, "WebSocket closed: " + reason + " (code: " + code + ")");
+                    if (connectionListener != null) {
+                        connectionListener.onDisconnected();
+                    }
+                }
+                
+                @Override
+                public void onError(Exception ex) {
+                    Log.e(TAG, "WebSocket error: " + ex.getMessage(), ex);
+                    if (connectionListener != null) {
+                        connectionListener.onError(ex.getMessage());
+                    }
+                }
+            };
+            
+            webSocketClient.connect();
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to connect: " + e.getMessage(), e);
+            if (connectionListener != null) {
+                connectionListener.onError("Connection failed: " + e.getMessage());
+            }
         }
-        
-        Log.d(TAG, "Connecting to Xiaozhi: " + url + " (Cloud: " + useCloudMode + ")");
-        
-        Request.Builder requestBuilder = new Request.Builder().url(url);
-        
-        // Add API key if available and using cloud (fallback)
-        if (useCloudMode && !config.getApiKey().isEmpty()) {
-            requestBuilder.addHeader("Authorization", "Bearer " + config.getApiKey());
-        }
-        
-        Request request = requestBuilder.build();
-        
-        webSocket = client.newWebSocket(request, new WebSocketListener() {
-            @Override
-            public void onOpen(WebSocket webSocket, Response response) {
-                isConnected = true;
-                retryAttempts = 0;
-                Log.d(TAG, "WebSocket connected successfully");
-                
-                if (callback != null) {
-                    callback.onConnected(useCloudMode);
-                }
-                
-                // Send initial handshake
-                sendHandshake();
-            }
-            
-            @Override
-            public void onMessage(WebSocket webSocket, String text) {
-                Log.d(TAG, "Received message: " + text);
-                handleXiaozhiResponse(text);
-            }
-            
-            @Override
-            public void onMessage(WebSocket webSocket, ByteString bytes) {
-                Log.d(TAG, "Received binary message: " + bytes.size() + " bytes");
-                // Handle binary audio data if needed
-            }
-            
-            @Override
-            public void onClosing(WebSocket webSocket, int code, String reason) {
-                Log.d(TAG, "WebSocket closing: " + reason);
-                webSocket.close(1000, null);
-            }
-            
-            @Override
-            public void onClosed(WebSocket webSocket, int code, String reason) {
-                isConnected = false;
-                Log.d(TAG, "WebSocket closed: " + reason);
-                
-                if (callback != null) {
-                    callback.onDisconnected();
-                }
-                
-                scheduleReconnect();
-            }
-            
-            @Override
-            public void onFailure(WebSocket webSocket, Throwable t, Response response) {
-                isConnected = false;
-                Log.e(TAG, "WebSocket failure: " + t.getMessage());
-                
-                if (callback != null) {
-                    callback.onError(t.getMessage());
-                }
-                
-                // Try fallback if in cloud mode
-                if (useCloudMode && retryAttempts < MAX_RETRY_ATTEMPTS) {
-                    retryAttempts++;
-                    Log.d(TAG, "Attempting fallback to self-hosted (attempt " + retryAttempts + ")");
-                    useCloudMode = false;
-                    scheduleReconnect();
-                } else {
-                    scheduleReconnect();
-                }
-            }
-        });
     }
     
     /**
-     * Send initial handshake to Xiaozhi server
-     * Với token-based auth, handshake đơn giản hơn
+     * Gửi Authorize handshake theo format ESP32
+     * 
+     * Format:
+     * {
+     *   "header": {
+     *     "name": "Authorize",
+     *     "namespace": "ai.xiaoai.authorize",
+     *     "message_id": "uuid"
+     *   },
+     *   "payload": {
+     *     "device_id": "AABBCCDDEEFF",
+     *     "pairing_code": "DDEEFF",
+     *     "device_type": "android_r1",
+     *     "device_name": "Phicomm R1",
+     *     "client_id": "1000013"
+     *   }
+     * }
      */
-    private void sendHandshake() {
+    private void sendAuthorizeHandshake() {
         try {
             String deviceId = PairingCodeGenerator.getDeviceId(this);
-            
-            JSONObject handshake = new JSONObject();
-            handshake.put("type", "handshake");
-            handshake.put("version", "1.0");
-            handshake.put("device", "Phicomm R1");
-            handshake.put("device_id", deviceId);
-            handshake.put("wake_word", config.getWakeWord());
-            
-            Log.d(TAG, "Sending handshake for device: " + deviceId);
-            sendMessage(handshake.toString());
-        } catch (JSONException e) {
-            Log.e(TAG, "Error creating handshake", e);
-        }
-    }
-    
-    /**
-     * Gửi audio data đến Xiaozhi để xử lý
-     */
-    public void sendAudioToXiaozhi(byte[] audioData, int sampleRate, int channels) {
-        if (!isConnected || webSocket == null) {
-            Log.w(TAG, "WebSocket not connected, cannot send audio");
-            return;
-        }
-        
-        try {
-            String audioBase64 = Base64.encodeToString(audioData, Base64.NO_WRAP);
+            String pairingCode = PairingCodeGenerator.getPairingCode(this);
             
             JSONObject message = new JSONObject();
-            message.put("type", "audio");
-            message.put("data", audioBase64);
-            message.put("format", "pcm");
-            message.put("sample_rate", sampleRate);
-            message.put("channels", channels);
-            message.put("bits_per_sample", 16);
             
-            sendMessage(message.toString());
-            Log.d(TAG, "Sent audio data: " + audioData.length + " bytes");
+            // Header
+            JSONObject header = new JSONObject();
+            header.put("name", "Authorize");
+            header.put("namespace", "ai.xiaoai.authorize");
+            header.put("message_id", UUID.randomUUID().toString());
+            
+            // Payload
+            JSONObject payload = new JSONObject();
+            payload.put("device_id", deviceId);
+            payload.put("pairing_code", pairingCode);
+            payload.put("device_type", "android_r1");
+            payload.put("device_name", "Phicomm R1");
+            payload.put("client_id", XiaozhiConfig.CLIENT_ID);
+            
+            message.put("header", header);
+            message.put("payload", payload);
+            
+            String json = message.toString();
+            Log.i(TAG, "Sending Authorize handshake: " + json);
+            webSocketClient.send(json);
+            
         } catch (JSONException e) {
-            Log.e(TAG, "Error creating audio message", e);
-        }
-    }
-    
-    /**
-     * Gửi text command đến Xiaozhi
-     */
-    public void sendTextCommand(String text) {
-        if (!isConnected || webSocket == null) {
-            Log.w(TAG, "WebSocket not connected, cannot send text");
-            return;
-        }
-        
-        try {
-            JSONObject message = new JSONObject();
-            message.put("type", "text");
-            message.put("text", text);
-            
-            sendMessage(message.toString());
-            Log.d(TAG, "Sent text command: " + text);
-        } catch (JSONException e) {
-            Log.e(TAG, "Error creating text message", e);
-        }
-    }
-    
-    /**
-     * Send message to WebSocket
-     */
-    private void sendMessage(String message) {
-        if (webSocket != null && isConnected) {
-            webSocket.send(message);
-        }
-    }
-    
-    /**
-     * Xử lý response từ Xiaozhi server
-     */
-    private void handleXiaozhiResponse(String response) {
-        try {
-            JSONObject json = new JSONObject(response);
-            String type = json.getString("type");
-            
-            if (callback != null) {
-                callback.onMessageReceived(response);
+            Log.e(TAG, "Failed to create Authorize handshake: " + e.getMessage(), e);
+            if (connectionListener != null) {
+                connectionListener.onError("Handshake failed: " + e.getMessage());
             }
-            
-            switch (type) {
-                case "tts":
-                case "audio":
-                    // Audio response - URL hoặc base64
-                    if (json.has("audio_url")) {
-                        String audioUrl = json.getString("audio_url");
-                        if (callback != null) {
-                            callback.onAudioReceived(audioUrl);
-                        }
-                        
-                        // Gửi đến AudioPlaybackService
-                        Intent intent = new Intent(this, AudioPlaybackService.class);
-                        intent.setAction(AudioPlaybackService.ACTION_PLAY_URL);
-                        intent.putExtra("audio_url", audioUrl);
-                        startService(intent);
-                    } else if (json.has("audio_data")) {
-                        // Base64 encoded audio
-                        String audioBase64 = json.getString("audio_data");
-                        byte[] audioData = Base64.decode(audioBase64, Base64.DEFAULT);
-                        
-                        Intent intent = new Intent(this, AudioPlaybackService.class);
-                        intent.setAction(AudioPlaybackService.ACTION_PLAY_DATA);
-                        intent.putExtra("audio_data", audioData);
-                        startService(intent);
-                    }
-                    break;
-                    
-                case "text":
-                    // Text response
-                    String text = json.getString("text");
-                    Log.d(TAG, "Received text: " + text);
-                    break;
-                    
-                case "command":
-                    // System command
-                    String command = json.getString("command");
-                    executeCommand(command, json);
-                    break;
-                    
-                case "error":
-                    String error = json.getString("message");
-                    Log.e(TAG, "Server error: " + error);
-                    if (callback != null) {
-                        callback.onError(error);
-                    }
-                    break;
-                    
-                case "ping":
-                    // Respond to ping
-                    sendPong();
-                    break;
-                    
-                default:
-                    Log.w(TAG, "Unknown message type: " + type);
-            }
-        } catch (JSONException e) {
-            Log.e(TAG, "Error parsing response", e);
         }
     }
     
     /**
-     * Execute system commands from Xiaozhi
+     * Handle message từ server
+     * Authorize response format:
+     * {
+     *   "header": {"name": "Authorize", "namespace": "ai.xiaoai.authorize", ...},
+     *   "payload": {"code": "0", "message": "success"}
+     * }
+     * code = "0" -> Success
+     * code != "0" -> Failed
      */
-    private void executeCommand(String command, JSONObject data) {
-        Log.d(TAG, "Executing command: " + command);
-        
-        Intent intent = new Intent("com.phicomm.r1.xiaozhi.COMMAND");
-        intent.putExtra("command", command);
-        intent.putExtra("data", data.toString());
-        sendBroadcast(intent);
-    }
-    
-    /**
-     * Send pong response
-     */
-    private void sendPong() {
+    private void handleMessage(String message) {
         try {
-            JSONObject pong = new JSONObject();
-            pong.put("type", "pong");
-            sendMessage(pong.toString());
-        } catch (JSONException e) {
-            Log.e(TAG, "Error creating pong", e);
-        }
-    }
-    
-    /**
-     * Schedule reconnection attempt
-     */
-    private void scheduleReconnect() {
-        reconnectHandler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (!isConnected) {
-                    Log.d(TAG, "Attempting to reconnect...");
-                    connectToXiaozhi();
+            JSONObject json = new JSONObject(message);
+            
+            // Check if this is Authorize response
+            if (json.has("header")) {
+                JSONObject header = json.getJSONObject("header");
+                String name = header.optString("name", "");
+                String namespace = header.optString("namespace", "");
+                
+                if ("Authorize".equals(name) && "ai.xiaoai.authorize".equals(namespace)) {
+                    handleAuthorizeResponse(json);
+                    return;
                 }
             }
-        }, RECONNECT_DELAY);
+            
+            // Handle other message types here
+            Log.d(TAG, "Unhandled message type: " + message);
+            
+        } catch (JSONException e) {
+            Log.w(TAG, "Failed to parse message: " + e.getMessage());
+        }
     }
     
     /**
-     * Disconnect from Xiaozhi
+     * Handle Authorize response
+     */
+    private void handleAuthorizeResponse(JSONObject json) {
+        try {
+            JSONObject payload = json.getJSONObject("payload");
+            String code = payload.optString("code", "-1");
+            String errorMessage = payload.optString("message", "Unknown error");
+            
+            if ("0".equals(code)) {
+                Log.i(TAG, "Pairing SUCCESS!");
+                
+                // Mark as paired
+                PairingCodeGenerator.markAsPaired(this);
+                
+                if (connectionListener != null) {
+                    connectionListener.onPairingSuccess();
+                }
+            } else {
+                Log.e(TAG, "Pairing FAILED: code=" + code + ", message=" + errorMessage);
+                
+                if (connectionListener != null) {
+                    connectionListener.onPairingFailed("Code: " + code + ", " + errorMessage);
+                }
+            }
+            
+        } catch (JSONException e) {
+            Log.e(TAG, "Failed to parse Authorize response: " + e.getMessage(), e);
+            if (connectionListener != null) {
+                connectionListener.onPairingFailed("Invalid response format");
+            }
+        }
+    }
+    
+    /**
+     * Send text message (sau khi paired)
+     */
+    public void sendTextMessage(String text) {
+        if (webSocketClient == null || !webSocketClient.isOpen()) {
+            Log.w(TAG, "Cannot send message - not connected");
+            return;
+        }
+        
+        try {
+            JSONObject message = new JSONObject();
+            
+            JSONObject header = new JSONObject();
+            header.put("name", "Recognize");
+            header.put("namespace", "ai.xiaoai.recognizer");
+            header.put("message_id", UUID.randomUUID().toString());
+            
+            JSONObject payload = new JSONObject();
+            payload.put("text", text);
+            
+            message.put("header", header);
+            message.put("payload", payload);
+            
+            String json = message.toString();
+            Log.d(TAG, "Sending text: " + json);
+            webSocketClient.send(json);
+            
+        } catch (JSONException e) {
+            Log.e(TAG, "Failed to send text: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Disconnect
      */
     public void disconnect() {
-        if (webSocket != null) {
-            webSocket.close(1000, "User disconnect");
-            webSocket = null;
+        if (webSocketClient != null) {
+            webSocketClient.close();
+            webSocketClient = null;
+            Log.i(TAG, "Disconnected");
         }
-        isConnected = false;
     }
     
+    /**
+     * Check connection status
+     */
     public boolean isConnected() {
-        return isConnected;
-    }
-    
-    public boolean isUsingCloud() {
-        return useCloudMode;
+        return webSocketClient != null && webSocketClient.isOpen();
     }
     
     @Override
     public void onDestroy() {
         disconnect();
-        reconnectHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
-        Log.d(TAG, "XiaozhiConnectionService destroyed");
+        Log.i(TAG, "Service destroyed");
     }
 }
