@@ -67,11 +67,29 @@ jobs:
         echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
         echo "Version: $VERSION_NAME (Code: $VERSION_CODE)"
         
+    - name: List APK files
+      run: |
+        cd R1XiaozhiApp/app/build/outputs/apk
+        echo "=== Debug APKs ==="
+        ls -la debug/ || echo "No debug folder"
+        echo "=== Release APKs ==="
+        ls -la release/ || echo "No release folder"
+        echo "=== All APK structure ==="
+        find . -name "*.apk" -type f
+        
     - name: Rename APKs
       run: |
         cd R1XiaozhiApp/app/build/outputs/apk
-        mv debug/app-debug.apk debug/R1Xiaozhi-v${{ steps.version.outputs.version_name }}-debug.apk
-        mv release/app-release.apk release/R1Xiaozhi-v${{ steps.version.outputs.version_name }}-release.apk
+        # Rename debug if exists
+        if [ -f "debug/app-debug.apk" ]; then
+          mv debug/app-debug.apk debug/R1Xiaozhi-v${{ steps.version.outputs.version_name }}-debug.apk
+        fi
+        # Rename release if exists
+        if [ -f "release/app-release.apk" ]; then
+          mv release/app-release.apk release/R1Xiaozhi-v${{ steps.version.outputs.version_name }}-release.apk
+        elif [ -f "release/app-release-unsigned.apk" ]; then
+          mv release/app-release-unsigned.apk release/R1Xiaozhi-v${{ steps.version.outputs.version_name }}-release.apk
+        fi
         
     - name: Upload Debug APK
       uses: actions/upload-artifact@v4
