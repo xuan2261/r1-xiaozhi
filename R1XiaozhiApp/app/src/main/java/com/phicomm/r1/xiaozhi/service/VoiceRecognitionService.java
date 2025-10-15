@@ -1,7 +1,6 @@
 package com.phicomm.r1.xiaozhi.service;
 
 import android.app.Notification;
-import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Intent;
@@ -95,34 +94,19 @@ public class VoiceRecognitionService extends Service {
     
     /**
      * Tạo notification channel cho Android O+
+     * Không cần cho API 22
      */
     private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID,
-                "Voice Recognition Service",
-                NotificationManager.IMPORTANCE_LOW
-            );
-            channel.setDescription("Đang lắng nghe lệnh giọng nói");
-            
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            if (manager != null) {
-                manager.createNotificationChannel(channel);
-            }
-        }
+        // NotificationChannel chỉ có từ API 26+
+        // API 22 không cần tạo channel
     }
     
     /**
      * Tạo notification cho foreground service
      */
     private Notification createNotification() {
-        Notification.Builder builder;
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            builder = new Notification.Builder(this, CHANNEL_ID);
-        } else {
-            builder = new Notification.Builder(this);
-        }
+        // API 22 chỉ cần Builder đơn giản
+        Notification.Builder builder = new Notification.Builder(this);
         
         return builder
             .setContentTitle("Xiaozhi Voice Assistant")
