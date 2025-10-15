@@ -2,13 +2,15 @@ package com.phicomm.r1.xiaozhi.util;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
+import android.provider.Settings;
 import android.util.Log;
 
-import java.util.Random;
-
 /**
- * Generator cho mã pairing 6 số để kết nối với Xiaozhi Cloud
- * Mã này được tạo một lần và lưu vĩnh viễn cho thiết bị
+ * Generator cho mã pairing dựa trên Device ID (giống xiaozhi-esp32)
+ * Pairing code = 6 ký tự cuối của device_id
+ * Theo: https://github.com/78/xiaozhi-esp32
  */
 public class PairingCodeGenerator {
     
@@ -18,69 +20,105 @@ public class PairingCodeGenerator {
     private static final String KEY_DEVICE_ID = "device_id";
     
     /**
-     * Lấy hoặc tạo mã pairing code cho thiết bị
-     * Mã này sẽ được tạo một lần và lưu lại
+     * Lấy pairing code từ Device ID
+     * Pairing code = 6 ký tự cuối của device_id (theo xiaozhi-esp32 protocol)
      */
     public static String getPairingCode(Context context) {
-        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        String code = prefs.getString(KEY_PAIRING_CODE, null);
-        
-        if (code == null) {
-            // Tạo mã mới
-            code = generatePairingCode();
-            prefs.edit().putString(KEY_PAIRING_CODE, code).apply();
-            Log.d(TAG, "Generated new pairing code: " + code);
+        String deviceId = getDeviceId(context);
+        // Lấy 6 ký tự cuối của device ID
+        if (deviceId.length() >= 6) {
+            return deviceId.substring(deviceId.length() - 6).toUpperCase();
         } else {
-            Log.d(TAG, "Using existing pairing code: " + code);
+            // Fallback nếu device ID quá ngắn
+            return String.format("%06d", deviceId.hashCode() & 0xFFFFFF);
         }
-        
-        return code;
     }
     
     /**
-     * Tạo Device ID duy nhất cho thiết bị
+     * Lấy Device ID duy nhất cho thiết bị
+     * Ưu tiên: WiFi MAC > Android ID
+     * Format: AABBCCDDEEFF (giống ESP32)
      */
     public static String getDeviceId(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         String deviceId = prefs.getString(KEY_DEVICE_ID, null);
         
         if (deviceId == null) {
-            deviceId = generateDeviceId();
+            deviceId = generateDeviceId(context);
             prefs.edit().putString(KEY_DEVICE_ID, deviceId).apply();
-            Log.d(TAG, "Generated new device ID: " + deviceId);
+            Log.i(TAG, "Generated device ID: " + deviceId);
         }
         
         return deviceId;
     }
     
     /**
-     * Tạo mã 6 số ngẫu nhiên
+     * Generate Device ID từ MAC address hoặc Android ID
      */
-    private static String generatePairingCode() {
-        Random random = new Random();
-        int code = 100000 + random.nextInt(900000); // 100000 đến 999999
-        return String.valueOf(code);
+    private static String generateDeviceId(Context context) {
+        try {
+            // Option 1: Dùng WiFi MAC address (giống ESP32)
+            WifiManager wifiManager = (WifiManager) context.getApplicationContext()
+                .getSystemService(Context.WIFI_SERVICE);
+            if (wifiManager != null) {
+                WifiInfo wifiInfo = wifiManager.getConnectionInfo();
+                String macAddress = wifiInfo.getMacAddress();
+                
+                if (macAddress != null && !macAddress.equals("02:00:00:00:00:00")) {
+                    // Remove colons: AA:BB:CC:DD:EE:FF -> AABBCCDDEEFF
+                    String deviceId = macAddress.replace(":", "").toUpperCase();
+                    Log.d(TAG, "Device ID from MAC: " + deviceId);
+                    return deviceId;
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to get MAC address: " + e.getMessage());
+        }
+        
+        // Option 2: Fallback to Android ID
+        try {
+            String androidId = Settings.Secure.getString(
+                context.getContentResolver(),
+                Settings.Secure.ANDROID_ID
+            );
+            
+            if (androidId != null && !androidId.equals("9774d56d682e549c")) { // Not emulator
+                // Pad to 12 chars if needed
+                while (androidId.length() < 12) {
+                    androidId = "0" + androidId;
+                }
+                String deviceId = androidId.substring(0, 12).toUpperCase();
+                Log.d(TAG, "Device ID from Android ID: " + deviceId);
+                return deviceId;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to get Android ID: " + e.getMessage());
+        }
+        
+        // Option 3: Last resort - generate from timestamp
+        String timestamp = String.format("%012X", System.currentTimeMillis() & 0xFFFFFFFFFFFL);
+        Log.w(TAG, "Device ID from timestamp (last resort): " + timestamp);
+        return timestamp;
     }
     
     /**
-     * Tạo Device ID từ thông tin thiết bị
-     */
-    private static String generateDeviceId() {
-        // Kết hợp nhiều yếu tố để tạo ID duy nhất
-        long timestamp = System.currentTimeMillis();
-        int random = new Random().nextInt(10000);
-        return "R1-" + timestamp + "-" + random;
-    }
-    
-    /**
-     * Reset pairing code (dùng khi cần pair lại với agent khác)
-     * Tạo mã mới hoàn toàn
+     * Reset device ID và pairing code
+     * CHÚ Ý: Pairing code được tính từ device ID, nên reset device ID sẽ tạo code mới
      */
     public static String resetPairingCode(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        prefs.edit().remove(KEY_PAIRING_CODE).apply();
-        String newCode = getPairingCode(context); // Tự động tạo mã mới
-        Log.d(TAG, "Pairing code reset to: " + newCode);
+        // Xóa device ID cũ
+        prefs.edit().remove(KEY_DEVICE_ID).apply();
+        // Generate device ID mới (sẽ dùng thời gian hiện tại)
+        String newDeviceId = generateDeviceId(context);
+        prefs.edit().putString(KEY_DEVICE_ID, newDeviceId).apply();
+        
+        String newCode = getPairingCode(context);
+        Log.i(TAG, "===========================================");
+        Log.i(TAG, "RESET PAIRING");
+        Log.i(TAG, "New Device ID: " + newDeviceId);
+        Log.i(TAG, "New Pairing Code: " + newCode);
+        Log.i(TAG, "===========================================");
         return newCode;
     }
     

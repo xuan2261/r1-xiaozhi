@@ -161,6 +161,71 @@ curl http://192.168.1.XXX:8088/pairing
 3. Nhập mã vào form "Add Device"
 4. Click **"Add"** hoặc **"Pair Device"**
 5. ✅ **Thành công!** R1 của bạn đã được kết nối với Xiaozhi Cloud
+---
+
+## 🔐 Cơ chế Pairing Code (Quan trọng!)
+
+### Device ID và Pairing Code
+
+App sử dụng **Device ID dựa trên MAC address** để tạo pairing code (theo chuẩn xiaozhi-esp32):
+
+**Quy trình:**
+1. **Lấy WiFi MAC Address** của R1 (ví dụ: `AA:BB:CC:DD:EE:FF`)
+2. **Tạo Device ID**: Remove dấu `:` → `AABBCCDDEEFF`
+3. **Tạo Pairing Code**: Lấy 6 ký tự cuối → `DDEEFF`
+
+**Ưu điểm:**
+- ✅ Code **cố định**, không đổi khi reboot
+- ✅ Tương thích với **Xiaozhi Cloud protocol**
+- ✅ Dễ debug và kiểm tra
+- ✅ Mỗi thiết bị có code duy nhất
+
+**Fallback Options:**
+- Nếu không lấy được MAC → dùng **Android ID**
+- Nếu cả 2 fail → dùng **timestamp** (last resort)
+
+### Xem Device ID và Pairing Code
+
+```bash
+# Qua ADB logcat
+adb logcat | grep "PairingCode"
+# Output:
+# PairingCode: Device ID: AABBCCDDEEFF
+# PairingCode: Pairing Code: DDEEFF
+
+# Qua HTTP API
+curl http://192.168.1.XXX:8088/pairing
+
+# Qua Web UI
+http://192.168.1.XXX:8088/
+```
+
+### Debug Pairing Issues
+
+**Verify Device ID format:**
+```bash
+# Device ID phải là 12 ký tự hex (0-9, A-F)
+# Pairing Code phải là 6 ký tự hex
+# Ví dụ hợp lệ:
+#   Device ID: AABBCC123456
+#   Pairing Code: 123456
+```
+
+**Check MAC address:**
+```bash
+# Kiểm tra MAC của R1
+adb shell ip addr show wlan0 | grep "link/ether"
+# Output: link/ether aa:bb:cc:dd:ee:ff
+# → Device ID sẽ là: AABBCCDDEEFF
+# → Pairing Code sẽ là: DDEEFF
+```
+
+**Nếu MAC bị fake (Android 6+):**
+- Android 6+ có thể trả về MAC fake: `02:00:00:00:00:00`
+- App sẽ tự động fallback sang Android ID
+- Hoặc reset pairing để dùng timestamp-based ID
+
+---
 ### 3.6. Nếu gặp lỗi "Device already added"
 
 Điều này xảy ra khi mã pairing đã được sử dụng trước đó. **Giải pháp:**
