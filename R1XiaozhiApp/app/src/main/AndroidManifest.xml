@@ -75,16 +75,6 @@
             </intent-filter>
         </receiver>
 
-        <!-- Network Change Receiver -->
-        <receiver
-            android:name=".receiver.NetworkChangeReceiver"
-            android:enabled="true"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
-            </intent-filter>
-        </receiver>
-
     </application>
 
 </manifest>
