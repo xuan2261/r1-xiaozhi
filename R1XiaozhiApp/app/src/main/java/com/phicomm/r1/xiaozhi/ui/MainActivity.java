@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
 import android.util.Log;
 import android.view.View;
@@ -45,6 +46,11 @@ public class MainActivity extends Activity {
     private boolean voiceServiceBound = false;
     private boolean ledServiceBound = false;
     
+    // Pairing announcement
+    private Handler pairingHandler;
+    private Runnable pairingAnnouncer;
+    private static final int PAIRING_ANNOUNCE_INTERVAL = 30000; // 30 seconds
+    
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -55,6 +61,9 @@ public class MainActivity extends Activity {
         initViews();
         bindServices();
         updateUI();
+        
+        // Check pairing status và announce nếu cần
+        checkAndAnnouncePairing();
         
         Log.d(TAG, "MainActivity created");
     }
@@ -121,6 +130,52 @@ public class MainActivity extends Activity {
         });
     }
     
+    /**
+     * Kiểm tra pairing status và announce code nếu chưa paired
+     * Theo chuẩn xiaozhi-esp32: thiết bị phải đọc to code để user nghe
+     */
+    private void checkAndAnnouncePairing() {
+        if (!PairingCodeGenerator.isPaired(this)) {
+            Log.i(TAG, "Device not paired yet - announcing pairing code");
+            
+            // Announce ngay lập tức
+            PairingCodeGenerator.announcePairingCode(this);
+            
+            // Setup repeat announcement every 30 seconds
+            pairingHandler = new Handler();
+            pairingAnnouncer = new Runnable() {
+                @Override
+                public void run() {
+                    if (!PairingCodeGenerator.isPaired(MainActivity.this)) {
+                        Log.d(TAG, "Still not paired - announcing again");
+                        PairingCodeGenerator.announcePairingCode(MainActivity.this);
+                        pairingHandler.postDelayed(this, PAIRING_ANNOUNCE_INTERVAL);
+                    } else {
+                        Log.i(TAG, "Device paired - stopping announcements");
+                        stopPairingAnnouncement();
+                    }
+                }
+            };
+            
+            // Schedule first repeat
+            pairingHandler.postDelayed(pairingAnnouncer, PAIRING_ANNOUNCE_INTERVAL);
+        } else {
+            Log.i(TAG, "Device already paired - no announcement needed");
+        }
+    }
+    
+    /**
+     * Stop pairing announcement loop
+     */
+    private void stopPairingAnnouncement() {
+        if (pairingHandler != null && pairingAnnouncer != null) {
+            pairingHandler.removeCallbacks(pairingAnnouncer);
+            pairingHandler = null;
+            pairingAnnouncer = null;
+            Log.d(TAG, "Pairing announcement stopped");
+        }
+    }
+    
     private void bindServices() {
         // Bind to XiaozhiConnectionService
         Intent xiaozhiIntent = new Intent(this, XiaozhiConnectionService.class);
@@ -151,6 +206,10 @@ public class MainActivity extends Activity {
                         public void run() {
                             connectionStatusText.setText("Đã kết nối: " +
                                 (isCloud ? "Cloud" : "Self-hosted"));
+                            
+                            // Mark as paired khi connect thành công
+                            PairingCodeGenerator.markAsPaired(MainActivity.this);
+                            stopPairingAnnouncement();
                         }
                     });
                 }
@@ -329,6 +388,12 @@ public class MainActivity extends Activity {
         if (ledServiceBound) {
             unbindService(ledConnection);
         }
+        
+        // Stop pairing announcement
+        stopPairingAnnouncement();
+        
+        // Shutdown TTS
+        PairingCodeGenerator.shutdownTTS();
         
         super.onDestroy();
         Log.d(TAG, "MainActivity destroyed");
