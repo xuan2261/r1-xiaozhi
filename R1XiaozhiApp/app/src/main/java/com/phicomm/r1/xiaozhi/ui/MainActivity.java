@@ -135,11 +135,11 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         
-        // Initialize views
-        statusText = findViewById(R.id.statusText);
-        pairingCodeText = findViewById(R.id.pairingCodeText);
-        connectButton = findViewById(R.id.connectButton);
-        resetButton = findViewById(R.id.resetButton);
+        // Initialize views - API 22 requires explicit cast
+        statusText = (TextView) findViewById(R.id.statusText);
+        pairingCodeText = (TextView) findViewById(R.id.pairingCodeText);
+        connectButton = (Button) findViewById(R.id.connectButton);
+        resetButton = (Button) findViewById(R.id.resetButton);
         
         // Setup buttons
         connectButton.setOnClickListener(new View.OnClickListener() {
