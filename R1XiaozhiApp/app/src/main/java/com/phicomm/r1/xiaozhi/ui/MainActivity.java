@@ -16,6 +16,11 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.phicomm.r1.xiaozhi.R;
+import com.phicomm.r1.xiaozhi.core.DeviceState;
+import com.phicomm.r1.xiaozhi.core.EventBus;
+import com.phicomm.r1.xiaozhi.core.XiaozhiCore;
+import com.phicomm.r1.xiaozhi.events.ConnectionEvent;
+import com.phicomm.r1.xiaozhi.events.StateChangedEvent;
 import com.phicomm.r1.xiaozhi.service.AudioPlaybackService;
 import com.phicomm.r1.xiaozhi.service.HTTPServerService;
 import com.phicomm.r1.xiaozhi.service.LEDControlService;
@@ -24,104 +29,43 @@ import com.phicomm.r1.xiaozhi.service.XiaozhiConnectionService;
 import com.phicomm.r1.xiaozhi.util.PairingCodeGenerator;
 
 /**
- * MainActivity đơn giản theo chuẩn ESP32
- * - Hiển thị pairing code LOCAL (không API)
- * - Connect WebSocket và wait Authorize response
- * - Không polling - callback-driven
+ * MainActivity refactored để sử dụng XiaozhiCore và EventBus
+ * - Event-driven architecture thay vì callbacks
+ * - Centralized state management
+ * - Clean separation of concerns
  */
 public class MainActivity extends Activity {
     
     private static final String TAG = "MainActivity";
     
+    // UI components
     private TextView statusText;
     private TextView pairingCodeText;
+    private TextView stateText;
     private TextView instructionsText;
     private Button connectButton;
     private Button copyButton;
     private Button resetButton;
     
+    // Core và EventBus
+    private XiaozhiCore core;
+    private EventBus eventBus;
+    
+    // Service binding
     private XiaozhiConnectionService xiaozhiService;
     private boolean xiaozhiBound = false;
+    
+    // Event listeners
+    private EventBus.EventListener<StateChangedEvent> stateListener;
+    private EventBus.EventListener<ConnectionEvent> connectionListener;
     
     private final ServiceConnection xiaozhiConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
-            XiaozhiConnectionService.LocalBinder binder = 
+            XiaozhiConnectionService.LocalBinder binder =
                 (XiaozhiConnectionService.LocalBinder) service;
             xiaozhiService = binder.getService();
             xiaozhiBound = true;
-            
-            // Setup listener
-            xiaozhiService.setConnectionListener(new XiaozhiConnectionService.ConnectionListener() {
-                @Override
-                public void onConnected() {
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            updateStatus("Da ket noi - Dang xac thuc...");
-                            connectButton.setEnabled(false);
-                        }
-                    });
-                }
-                
-                @Override
-                public void onDisconnected() {
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            updateStatus("Mat ket noi");
-                            connectButton.setEnabled(true);
-                        }
-                    });
-                }
-                
-                @Override
-                public void onPairingSuccess() {
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            updateStatus("[OK] Da ghep noi thanh cong!");
-                            Toast.makeText(MainActivity.this,
-                                "Pairing thanh cong! Co the dung giong noi.",
-                                Toast.LENGTH_LONG).show();
-                            pairingCodeText.setText("Da Ghep Noi");
-                            connectButton.setEnabled(false);
-                        }
-                    });
-                }
-                
-                @Override
-                public void onPairingFailed(final String error) {
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            updateStatus("[FAIL] Ghep noi that bai: " + error);
-                            Toast.makeText(MainActivity.this,
-                                "Pairing that bai: " + error,
-                                Toast.LENGTH_LONG).show();
-                            connectButton.setEnabled(true);
-                        }
-                    });
-                }
-                
-                @Override
-                public void onMessage(String message) {
-                    Log.d(TAG, "Received: " + message);
-                }
-                
-                @Override
-                public void onError(final String error) {
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            updateStatus("Loi: " + error);
-                            Toast.makeText(MainActivity.this,
-                                "Loi: " + error,
-                                Toast.LENGTH_SHORT).show();
-                        }
-                    });
-                }
-            });
             
             Log.i(TAG, "Xiaozhi service bound");
             checkPairingStatus();
@@ -140,14 +84,102 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
         
         // Initialize views - API 22 requires explicit cast
+        initializeViews();
+        
+        // Get XiaozhiCore và EventBus
+        core = XiaozhiCore.getInstance();
+        eventBus = core.getEventBus();
+        
+        // Register event listeners
+        registerEventListeners();
+        
+        // Setup button listeners
+        setupButtonListeners();
+        
+        // Start all services
+        startAllServices();
+        
+        // Bind to connection service
+        bindConnectionService();
+        
+        Log.i(TAG, "MainActivity created");
+        Log.i(TAG, "Core state: " + core.getStateSnapshot());
+    }
+    
+    private void initializeViews() {
         statusText = (TextView) findViewById(R.id.statusText);
         pairingCodeText = (TextView) findViewById(R.id.pairingCodeText);
+        stateText = (TextView) findViewById(R.id.stateText);
         instructionsText = (TextView) findViewById(R.id.instructionsText);
         connectButton = (Button) findViewById(R.id.connectButton);
         copyButton = (Button) findViewById(R.id.copyButton);
         resetButton = (Button) findViewById(R.id.resetButton);
+    }
+    
+    private void registerEventListeners() {
+        // State change listener
+        stateListener = new EventBus.EventListener<StateChangedEvent>() {
+            @Override
+            public void onEvent(StateChangedEvent event) {
+                onStateChanged(event);
+            }
+        };
+        eventBus.register(StateChangedEvent.class, stateListener);
         
-        // Setup buttons
+        // Connection event listener
+        connectionListener = new EventBus.EventListener<ConnectionEvent>() {
+            @Override
+            public void onEvent(ConnectionEvent event) {
+                onConnectionEvent(event);
+            }
+        };
+        eventBus.register(ConnectionEvent.class, connectionListener);
+        
+        Log.d(TAG, "Event listeners registered");
+    }
+    
+    private void onStateChanged(StateChangedEvent event) {
+        Log.d(TAG, "State changed: " + event.oldState + " -> " + event.newState);
+        
+        // Update state display
+        String stateDisplay = "Trang thai: ";
+        switch (event.newState) {
+            case IDLE:
+                stateDisplay += "San sang";
+                break;
+            case LISTENING:
+                stateDisplay += "Dang nghe...";
+                break;
+            case SPEAKING:
+                stateDisplay += "Dang noi...";
+                break;
+        }
+        
+        if (stateText != null) {
+            stateText.setText(stateDisplay);
+        }
+    }
+    
+    private void onConnectionEvent(ConnectionEvent event) {
+        if (event.connected) {
+            updateStatus("[OK] " + event.message);
+            Toast.makeText(this, "Ket noi thanh cong!", Toast.LENGTH_SHORT).show();
+            pairingCodeText.setText("Da Ghep Noi");
+            connectButton.setEnabled(false);
+            if (instructionsText != null) {
+                instructionsText.setVisibility(View.GONE);
+            }
+            if (copyButton != null) {
+                copyButton.setVisibility(View.GONE);
+            }
+        } else {
+            updateStatus("[FAIL] " + event.message);
+            Toast.makeText(this, "Loi: " + event.message, Toast.LENGTH_SHORT).show();
+            connectButton.setEnabled(true);
+        }
+    }
+    
+    private void setupButtonListeners() {
         connectButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -168,19 +200,19 @@ public class MainActivity extends Activity {
                 resetPairing();
             }
         });
-        
-        // Start all services
+    }
+    
+    private void startAllServices() {
         startService(new Intent(this, VoiceRecognitionService.class));
         startService(new Intent(this, AudioPlaybackService.class));
         startService(new Intent(this, LEDControlService.class));
         startService(new Intent(this, HTTPServerService.class));
-        
-        // Bind to Xiaozhi service
+    }
+    
+    private void bindConnectionService() {
         Intent xiaozhiIntent = new Intent(this, XiaozhiConnectionService.class);
         startService(xiaozhiIntent);
         bindService(xiaozhiIntent, xiaozhiConnection, Context.BIND_AUTO_CREATE);
-        
-        Log.i(TAG, "MainActivity created");
     }
     
     /**
@@ -276,10 +308,22 @@ public class MainActivity extends Activity {
     
     @Override
     protected void onDestroy() {
+        // Unregister event listeners
+        if (eventBus != null) {
+            if (stateListener != null) {
+                eventBus.unregister(StateChangedEvent.class, stateListener);
+            }
+            if (connectionListener != null) {
+                eventBus.unregister(ConnectionEvent.class, connectionListener);
+            }
+        }
+        
+        // Unbind service
         if (xiaozhiBound) {
             unbindService(xiaozhiConnection);
             xiaozhiBound = false;
         }
+        
         super.onDestroy();
         Log.i(TAG, "MainActivity destroyed");
     }

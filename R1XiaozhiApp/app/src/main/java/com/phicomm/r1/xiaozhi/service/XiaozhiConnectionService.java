@@ -8,6 +8,12 @@ import android.os.IBinder;
 import android.util.Log;
 
 import com.phicomm.r1.xiaozhi.config.XiaozhiConfig;
+import com.phicomm.r1.xiaozhi.core.DeviceState;
+import com.phicomm.r1.xiaozhi.core.EventBus;
+import com.phicomm.r1.xiaozhi.core.ListeningMode;
+import com.phicomm.r1.xiaozhi.core.XiaozhiCore;
+import com.phicomm.r1.xiaozhi.events.ConnectionEvent;
+import com.phicomm.r1.xiaozhi.events.MessageReceivedEvent;
 import com.phicomm.r1.xiaozhi.util.ErrorCodes;
 import com.phicomm.r1.xiaozhi.util.PairingCodeGenerator;
 
@@ -23,6 +29,8 @@ import java.util.UUID;
  * Service quản lý kết nối WebSocket với Xiaozhi Cloud
  * Theo chuẩn xiaozhi-esp32: wss://xiaozhi.me/v1/ws + Authorize handshake
  * Enhanced với ErrorCodes và retry logic (học từ android-client & py-xiaozhi)
+ *
+ * Refactored để sử dụng XiaozhiCore và EventBus
  */
 public class XiaozhiConnectionService extends Service {
     
@@ -32,6 +40,10 @@ public class XiaozhiConnectionService extends Service {
     private WebSocketClient webSocketClient;
     private final IBinder binder = new LocalBinder();
     private ConnectionListener connectionListener;
+    
+    // XiaozhiCore và EventBus
+    private XiaozhiCore core;
+    private EventBus eventBus;
     
     // Retry logic
     private Handler retryHandler;
@@ -51,6 +63,20 @@ public class XiaozhiConnectionService extends Service {
         void onPairingFailed(String error);
         void onMessage(String message);
         void onError(String error);
+    }
+    
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        
+        // Get XiaozhiCore instance
+        core = XiaozhiCore.getInstance();
+        eventBus = core.getEventBus();
+        
+        // Register this service với core
+        core.setConnectionService(this);
+        
+        Log.i(TAG, "Service created and registered with XiaozhiCore");
     }
     
     @Override
@@ -213,6 +239,9 @@ public class XiaozhiConnectionService extends Service {
         try {
             JSONObject json = new JSONObject(message);
             
+            // Broadcast message received event
+            eventBus.post(new MessageReceivedEvent(json));
+            
             // Check if this is Authorize response
             if (json.has("header")) {
                 JSONObject header = json.getJSONObject("header");
@@ -225,11 +254,49 @@ public class XiaozhiConnectionService extends Service {
                 }
             }
             
+            // Handle TTS messages
+            String type = json.optString("type");
+            if ("tts".equals(type)) {
+                handleTTSMessage(json);
+            }
+            
             // Handle other message types here
-            Log.d(TAG, "Unhandled message type: " + message);
+            Log.d(TAG, "Message type: " + type);
             
         } catch (JSONException e) {
             Log.w(TAG, "Failed to parse message: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Handle TTS messages theo logic py-xiaozhi
+     */
+    private void handleTTSMessage(JSONObject json) {
+        try {
+            String state = json.optString("state");
+            
+            if ("start".equals(state)) {
+                // Check listening mode
+                if (core.isKeepListening() &&
+                    core.getListeningMode() == ListeningMode.REALTIME) {
+                    // Keep listening during TTS in realtime mode
+                    core.setDeviceState(DeviceState.LISTENING);
+                } else {
+                    core.setDeviceState(DeviceState.SPEAKING);
+                }
+            } else if ("stop".equals(state)) {
+                if (core.isKeepListening()) {
+                    // Resume listening
+                    core.setDeviceState(DeviceState.LISTENING);
+                    // Restart listening theo py-xiaozhi logic
+                    sendStartListening(core.getListeningMode());
+                } else {
+                    core.setDeviceState(DeviceState.IDLE);
+                }
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error handling TTS message", e);
         }
     }
     
@@ -254,6 +321,13 @@ public class XiaozhiConnectionService extends Service {
                 // Mark as paired
                 PairingCodeGenerator.markAsPaired(this);
                 
+                // Post event thay vì chỉ callback
+                eventBus.post(new ConnectionEvent(true, "Pairing success"));
+                
+                // Update state
+                core.setDeviceState(DeviceState.IDLE);
+                
+                // Legacy callback (giữ cho backward compatibility)
                 if (connectionListener != null) {
                     connectionListener.onPairingSuccess();
                 }
@@ -262,6 +336,10 @@ public class XiaozhiConnectionService extends Service {
                 Log.e(TAG, "Pairing FAILED: code=" + errorCode +
                     " (" + ErrorCodes.getEnglishMessage(errorCode) + ")");
                 
+                // Post event
+                eventBus.post(new ConnectionEvent(false, errorMsg));
+                
+                // Legacy callback
                 if (connectionListener != null) {
                     connectionListener.onPairingFailed(errorMsg);
                 }
@@ -275,9 +353,110 @@ public class XiaozhiConnectionService extends Service {
         } catch (JSONException e) {
             Log.e(TAG, "Failed to parse Authorize response: " + e.getMessage(), e);
             String errorMsg = ErrorCodes.getMessage(ErrorCodes.INVALID_MESSAGE_FORMAT);
+            
+            // Post event
+            eventBus.post(new ConnectionEvent(false, errorMsg));
+            
+            // Legacy callback
             if (connectionListener != null) {
                 connectionListener.onPairingFailed(errorMsg);
             }
+        }
+    }
+    
+    
+    /**
+     * Send start listening message theo py-xiaozhi
+     */
+    public void sendStartListening(ListeningMode mode) {
+        if (webSocketClient == null || !webSocketClient.isOpen()) {
+            Log.w(TAG, "Cannot send message - not connected");
+            return;
+        }
+        
+        try {
+            JSONObject message = new JSONObject();
+            
+            JSONObject header = new JSONObject();
+            header.put("name", "StartListening");
+            header.put("namespace", "ai.xiaoai.recognizer");
+            header.put("message_id", UUID.randomUUID().toString());
+            
+            JSONObject payload = new JSONObject();
+            payload.put("mode", mode.getValue());
+            
+            message.put("header", header);
+            message.put("payload", payload);
+            
+            String json = message.toString();
+            Log.d(TAG, "Sending StartListening: " + json);
+            webSocketClient.send(json);
+            
+        } catch (JSONException e) {
+            Log.e(TAG, "Failed to send StartListening: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Send stop listening message
+     */
+    public void sendStopListening() {
+        if (webSocketClient == null || !webSocketClient.isOpen()) {
+            Log.w(TAG, "Cannot send message - not connected");
+            return;
+        }
+        
+        try {
+            JSONObject message = new JSONObject();
+            
+            JSONObject header = new JSONObject();
+            header.put("name", "StopListening");
+            header.put("namespace", "ai.xiaoai.recognizer");
+            header.put("message_id", UUID.randomUUID().toString());
+            
+            message.put("header", header);
+            message.put("payload", new JSONObject());
+            
+            String json = message.toString();
+            Log.d(TAG, "Sending StopListening: " + json);
+            webSocketClient.send(json);
+            
+        } catch (JSONException e) {
+            Log.e(TAG, "Failed to send StopListening: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Send abort speaking message
+     */
+    public void sendAbortSpeaking(String reason) {
+        if (webSocketClient == null || !webSocketClient.isOpen()) {
+            Log.w(TAG, "Cannot send message - not connected");
+            return;
+        }
+        
+        try {
+            JSONObject message = new JSONObject();
+            
+            JSONObject header = new JSONObject();
+            header.put("name", "AbortSpeaking");
+            header.put("namespace", "ai.xiaoai.tts");
+            header.put("message_id", UUID.randomUUID().toString());
+            
+            JSONObject payload = new JSONObject();
+            if (reason != null) {
+                payload.put("reason", reason);
+            }
+            
+            message.put("header", header);
+            message.put("payload", payload);
+            
+            String json = message.toString();
+            Log.d(TAG, "Sending AbortSpeaking: " + json);
+            webSocketClient.send(json);
+            
+        } catch (JSONException e) {
+            Log.e(TAG, "Failed to send AbortSpeaking: " + e.getMessage(), e);
         }
     }
     
@@ -381,6 +560,12 @@ public class XiaozhiConnectionService extends Service {
     public void onDestroy() {
         cancelRetries();
         disconnect();
+        
+        // Unregister from core
+        if (core != null) {
+            core.setConnectionService(null);
+        }
+        
         super.onDestroy();
         Log.i(TAG, "Service destroyed");
     }

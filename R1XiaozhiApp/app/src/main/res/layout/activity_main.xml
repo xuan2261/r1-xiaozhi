@@ -56,6 +56,16 @@
         android:layout_marginBottom="10dp"/>
 
     <TextView
+        android:id="@+id/stateText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Trang thai: San sang"
+        android:textSize="16sp"
+        android:textColor="#2196F3"
+        android:gravity="center"
+        android:layout_marginBottom="10dp"/>
+
+    <TextView
         android:id="@+id/connection_status_text"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
