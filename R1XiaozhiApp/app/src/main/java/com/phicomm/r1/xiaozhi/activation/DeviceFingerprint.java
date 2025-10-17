@@ -66,7 +66,7 @@ public class DeviceFingerprint {
     private void generateAndSaveIdentity() {
         try {
             // Get MAC address
-            String macAddress = getMacAddress();
+            String macAddress = retrieveMacAddress();
             
             // Generate serial number from MAC
             String serialNumber = generateSerialNumber(macAddress);
@@ -91,9 +91,9 @@ public class DeviceFingerprint {
     }
     
     /**
-     * Get MAC address
+     * Retrieve MAC address from system
      */
-    private String getMacAddress() {
+    private String retrieveMacAddress() {
         try {
             WifiManager wifiManager = (WifiManager) context.getApplicationContext()
                 .getSystemService(Context.WIFI_SERVICE);
