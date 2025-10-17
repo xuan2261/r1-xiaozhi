@@ -172,7 +172,8 @@ public class XiaozhiConnectionService extends Service {
     
     /**
      * Gửi Authorize handshake theo format ESP32
-     * 
+     * Match CHÍNH XÁC với xiaozhi-esp32 implementation
+     *
      * Format:
      * {
      *   "header": {
@@ -183,9 +184,11 @@ public class XiaozhiConnectionService extends Service {
      *   "payload": {
      *     "device_id": "AABBCCDDEEFF",
      *     "pairing_code": "DDEEFF",
-     *     "device_type": "android_r1",
-     *     "device_name": "Phicomm R1",
-     *     "client_id": "1000013"
+     *     "device_type": "android",
+     *     "os_version": "5.1.1",
+     *     "app_version": "1.0.0",
+     *     "brand": "Phicomm",
+     *     "model": "R1"
      *   }
      * }
      */
@@ -202,19 +205,25 @@ public class XiaozhiConnectionService extends Service {
             header.put("namespace", "ai.xiaoai.authorize");
             header.put("message_id", UUID.randomUUID().toString());
             
-            // Payload
+            // Payload - MATCH CHÍNH XÁC với ESP32
             JSONObject payload = new JSONObject();
             payload.put("device_id", deviceId);
             payload.put("pairing_code", pairingCode);
-            payload.put("device_type", "android_r1");
-            payload.put("device_name", "Phicomm R1");
-            payload.put("client_id", XiaozhiConfig.CLIENT_ID);
+            payload.put("device_type", "android");  // Đổi từ "android_r1" sang "android"
+            payload.put("os_version", android.os.Build.VERSION.RELEASE);
+            payload.put("app_version", "1.0.0");
+            payload.put("brand", "Phicomm");
+            payload.put("model", "R1");
             
             message.put("header", header);
             message.put("payload", payload);
             
             String json = message.toString();
-            Log.i(TAG, "Sending Authorize handshake: " + json);
+            Log.i(TAG, "=== AUTHORIZE HANDSHAKE ===");
+            Log.i(TAG, "Device ID: " + deviceId);
+            Log.i(TAG, "Pairing Code: " + pairingCode);
+            Log.i(TAG, "JSON: " + json);
+            Log.i(TAG, "===========================");
             webSocketClient.send(json);
             
         } catch (JSONException e) {
