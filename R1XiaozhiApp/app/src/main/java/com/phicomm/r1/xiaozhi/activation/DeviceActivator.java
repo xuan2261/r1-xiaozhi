@@ -69,7 +69,12 @@ public class DeviceActivator {
             return;
         }
         
-        executor.execute(this::performActivation);
+        executor.execute(new Runnable() {
+            @Override
+            public void run() {
+                performActivation();
+            }
+        });
     }
     
     /**
@@ -259,27 +264,47 @@ public class DeviceActivator {
     
     // Notification helpers (main thread)
     
-    private void notifyVerificationCode(String code) {
+    private void notifyVerificationCode(final String code) {
         if (listener != null) {
-            mainHandler.post(() -> listener.onActivationStarted(code));
+            mainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    listener.onActivationStarted(code);
+                }
+            });
         }
     }
     
-    private void notifyProgress(int attempt, int max) {
+    private void notifyProgress(final int attempt, final int max) {
         if (listener != null) {
-            mainHandler.post(() -> listener.onActivationProgress(attempt, max));
+            mainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    listener.onActivationProgress(attempt, max);
+                }
+            });
         }
     }
     
-    private void notifySuccess(String token) {
+    private void notifySuccess(final String token) {
         if (listener != null) {
-            mainHandler.post(() -> listener.onActivationSuccess(token));
+            mainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    listener.onActivationSuccess(token);
+                }
+            });
         }
     }
     
-    private void notifyError(String error) {
+    private void notifyError(final String error) {
         if (listener != null) {
-            mainHandler.post(() -> listener.onActivationFailed(error));
+            mainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    listener.onActivationFailed(error);
+                }
+            });
         }
     }
     
