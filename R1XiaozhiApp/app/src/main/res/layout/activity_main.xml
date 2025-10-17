@@ -40,10 +40,37 @@
         android:id="@+id/instructionsText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Hướng dẫn kết nối:\n1. Sao chép mã ghép nối ở trên\n2. Vào console.xiaozhi.ai\n3. Thêm thiết bị với mã đã sao chép\n4. Quay lại và nhấn Kết Nối"
+        android:text="Hướng dẫn kết nối:\n1. Bấm nút 'Connect' để bắt đầu\n2. Nhập mã vào trang web\n3. Đợi kích hoạt hoàn tất"
         android:textSize="14sp"
         android:gravity="center"
         android:layout_marginBottom="15dp"/>
+
+    <!-- Activation Code Display (py-xiaozhi method) -->
+    <TextView
+        android:id="@+id/activationCodeText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Mã kích hoạt: ------"
+        android:textSize="20sp"
+        android:textColor="#FF5722"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:background="#FFF3E0"
+        android:padding="15dp"
+        android:layout_marginBottom="10dp"
+        android:visibility="gone"/>
+
+    <!-- Activation Progress -->
+    <TextView
+        android:id="@+id/activationProgressText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Đang kiểm tra kích hoạt..."
+        android:textSize="14sp"
+        android:textColor="#FF9800"
+        android:gravity="center"
+        android:layout_marginBottom="10dp"
+        android:visibility="gone"/>
 
     <TextView
         android:id="@+id/statusText"
@@ -95,6 +122,16 @@
             android:text="Stop"
             android:layout_marginLeft="5dp"/>
     </LinearLayout>
+
+    <!-- Cancel Activation Button -->
+    <Button
+        android:id="@+id/cancelActivationButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Hủy Kích Hoạt"
+        android:layout_gravity="center"
+        android:layout_marginTop="10dp"
+        android:visibility="gone"/>
 
     <LinearLayout
         android:layout_width="match_parent"

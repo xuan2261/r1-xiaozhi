@@ -7,6 +7,8 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.util.Log;
 
+import com.phicomm.r1.xiaozhi.activation.DeviceActivator;
+import com.phicomm.r1.xiaozhi.activation.DeviceFingerprint;
 import com.phicomm.r1.xiaozhi.config.XiaozhiConfig;
 import com.phicomm.r1.xiaozhi.core.DeviceState;
 import com.phicomm.r1.xiaozhi.core.EventBus;
@@ -15,7 +17,6 @@ import com.phicomm.r1.xiaozhi.core.XiaozhiCore;
 import com.phicomm.r1.xiaozhi.events.ConnectionEvent;
 import com.phicomm.r1.xiaozhi.events.MessageReceivedEvent;
 import com.phicomm.r1.xiaozhi.util.ErrorCodes;
-import com.phicomm.r1.xiaozhi.util.PairingCodeGenerator;
 
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
@@ -23,12 +24,17 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.net.URI;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 /**
  * Service quản lý kết nối WebSocket với Xiaozhi Cloud
- * Theo chuẩn xiaozhi-esp32: wss://xiaozhi.me/v1/ws + Authorize handshake
- * Enhanced với ErrorCodes và retry logic (học từ android-client & py-xiaozhi)
+ *
+ * UPDATED: Sử dụng py-xiaozhi authentication method
+ * - Token-based authentication (Bearer token trong WebSocket header)
+ * - Device activation flow với HMAC challenge-response
+ * - Hello message thay vì Authorize handshake
  *
  * Refactored để sử dụng XiaozhiCore và EventBus
  */
@@ -45,6 +51,10 @@ public class XiaozhiConnectionService extends Service {
     private XiaozhiCore core;
     private EventBus eventBus;
     
+    // Device activation
+    private DeviceActivator deviceActivator;
+    private DeviceFingerprint deviceFingerprint;
+    
     // Retry logic
     private Handler retryHandler;
     private int retryCount = 0;
@@ -59,6 +69,8 @@ public class XiaozhiConnectionService extends Service {
     public interface ConnectionListener {
         void onConnected();
         void onDisconnected();
+        void onActivationRequired(String verificationCode);
+        void onActivationProgress(int attempt, int maxAttempts);
         void onPairingSuccess();
         void onPairingFailed(String error);
         void onMessage(String message);
@@ -72,6 +84,44 @@ public class XiaozhiConnectionService extends Service {
         // Get XiaozhiCore instance
         core = XiaozhiCore.getInstance();
         eventBus = core.getEventBus();
+        
+        // Initialize device activation
+        deviceFingerprint = DeviceFingerprint.getInstance(this);
+        deviceActivator = new DeviceActivator(this);
+        
+        // Setup activation listener
+        deviceActivator.setListener(new DeviceActivator.ActivationListener() {
+            @Override
+            public void onActivationStarted(String verificationCode) {
+                Log.i(TAG, "Activation started - code: " + verificationCode);
+                if (connectionListener != null) {
+                    connectionListener.onActivationRequired(verificationCode);
+                }
+            }
+            
+            @Override
+            public void onActivationProgress(int attempt, int maxAttempts) {
+                Log.d(TAG, "Activation progress: " + attempt + "/" + maxAttempts);
+                if (connectionListener != null) {
+                    connectionListener.onActivationProgress(attempt, maxAttempts);
+                }
+            }
+            
+            @Override
+            public void onActivationSuccess(String accessToken) {
+                Log.i(TAG, "Activation successful!");
+                // Auto connect with token
+                connectWithToken(accessToken);
+            }
+            
+            @Override
+            public void onActivationFailed(String error) {
+                Log.e(TAG, "Activation failed: " + error);
+                if (connectionListener != null) {
+                    connectionListener.onPairingFailed(error);
+                }
+            }
+        });
         
         // Register this service với core
         core.setConnectionService(this);
@@ -96,30 +146,68 @@ public class XiaozhiConnectionService extends Service {
     }
     
     /**
-     * Connect và gửi Authorize handshake
-     * Theo ESP32: connect đơn giản, KHÔNG có token trong URL
+     * Connect to Xiaozhi Cloud
+     * Sử dụng py-xiaozhi method:
+     * 1. Check if device is activated
+     * 2. If not activated -> start activation flow
+     * 3. If activated -> connect with token
      */
     public void connect() {
+        // Check if already connected
+        if (webSocketClient != null && webSocketClient.isOpen()) {
+            Log.w(TAG, "Already connected");
+            return;
+        }
+        
+        // Check activation status
+        if (!deviceActivator.isActivated()) {
+            Log.i(TAG, "Device not activated - starting activation flow");
+            deviceActivator.startActivation();
+            return;
+        }
+        
+        // Get access token
+        String accessToken = deviceActivator.getAccessToken();
+        if (accessToken == null) {
+            Log.e(TAG, "No access token available");
+            if (connectionListener != null) {
+                connectionListener.onError("No access token - please activate device");
+            }
+            return;
+        }
+        
+        // Connect with token
+        connectWithToken(accessToken);
+    }
+    
+    /**
+     * Connect to WebSocket with Bearer token
+     * py-xiaozhi method: Token trong WebSocket header
+     */
+    private void connectWithToken(final String accessToken) {
         if (webSocketClient != null && webSocketClient.isOpen()) {
             Log.w(TAG, "Already connected");
             return;
         }
         
         try {
-            // WebSocket URL đơn giản - KHÔNG có token!
             URI serverUri = new URI(XiaozhiConfig.WEBSOCKET_URL);
-            Log.i(TAG, "Connecting to: " + serverUri);
+            Log.i(TAG, "Connecting with token to: " + serverUri);
             
-            webSocketClient = new WebSocketClient(serverUri) {
+            // Create headers with Bearer token
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Authorization", "Bearer " + accessToken);
+            
+            webSocketClient = new WebSocketClient(serverUri, headers) {
                 @Override
                 public void onOpen(ServerHandshake handshakedata) {
-                    Log.i(TAG, "WebSocket connected");
+                    Log.i(TAG, "WebSocket connected with token");
                     if (connectionListener != null) {
                         connectionListener.onConnected();
                     }
                     
-                    // Gửi Authorize handshake ngay sau khi connect
-                    sendAuthorizeHandshake();
+                    // Send hello message (py-xiaozhi method)
+                    sendHelloMessage();
                 }
                 
                 @Override
@@ -171,78 +259,73 @@ public class XiaozhiConnectionService extends Service {
     }
     
     /**
-     * Gửi Authorize handshake theo format ESP32
-     * Match CHÍNH XÁC với xiaozhi-esp32 implementation
-     *
+     * Send hello message (py-xiaozhi method)
      * Format:
      * {
      *   "header": {
-     *     "name": "Authorize",
-     *     "namespace": "ai.xiaoai.authorize",
+     *     "name": "hello",
+     *     "namespace": "ai.xiaoai.common",
      *     "message_id": "uuid"
      *   },
      *   "payload": {
-     *     "device_id": "AABBCCDDEEFF",
-     *     "pairing_code": "DDEEFF",
+     *     "device_id": "MAC_ADDRESS",
+     *     "serial_number": "SN-HASH-MAC",
      *     "device_type": "android",
-     *     "os_version": "5.1.1",
-     *     "app_version": "1.0.0",
-     *     "brand": "Phicomm",
-     *     "model": "R1"
+     *     "os_version": "11",
+     *     "app_version": "1.0.0"
      *   }
      * }
      */
-    private void sendAuthorizeHandshake() {
+    private void sendHelloMessage() {
         try {
-            String deviceId = PairingCodeGenerator.getDeviceId(this);
-            String pairingCode = PairingCodeGenerator.getPairingCode(this);
+            String deviceId = deviceFingerprint.getMacAddress();
+            String serialNumber = deviceFingerprint.getSerialNumber();
             
             JSONObject message = new JSONObject();
             
             // Header
             JSONObject header = new JSONObject();
-            header.put("name", "Authorize");
-            header.put("namespace", "ai.xiaoai.authorize");
+            header.put("name", "hello");
+            header.put("namespace", "ai.xiaoai.common");
             header.put("message_id", UUID.randomUUID().toString());
             
-            // Payload - MATCH CHÍNH XÁC với ESP32
+            // Payload
             JSONObject payload = new JSONObject();
             payload.put("device_id", deviceId);
-            payload.put("pairing_code", pairingCode);
-            payload.put("device_type", "android");  // Đổi từ "android_r1" sang "android"
+            payload.put("serial_number", serialNumber);
+            payload.put("device_type", "android");
             payload.put("os_version", android.os.Build.VERSION.RELEASE);
             payload.put("app_version", "1.0.0");
-            payload.put("brand", "Phicomm");
-            payload.put("model", "R1");
             
             message.put("header", header);
             message.put("payload", payload);
             
             String json = message.toString();
-            Log.i(TAG, "=== AUTHORIZE HANDSHAKE ===");
+            Log.i(TAG, "=== HELLO MESSAGE (py-xiaozhi) ===");
             Log.i(TAG, "Device ID: " + deviceId);
-            Log.i(TAG, "Pairing Code: " + pairingCode);
+            Log.i(TAG, "Serial Number: " + serialNumber);
             Log.i(TAG, "JSON: " + json);
-            Log.i(TAG, "===========================");
+            Log.i(TAG, "==================================");
             webSocketClient.send(json);
             
-        } catch (JSONException e) {
-            Log.e(TAG, "Failed to create Authorize handshake: " + e.getMessage(), e);
+            // Mark as paired after successful hello
+            core.setDeviceState(DeviceState.IDLE);
+            eventBus.post(new ConnectionEvent(true, "Connected with py-xiaozhi method"));
+            
             if (connectionListener != null) {
-                connectionListener.onError("Handshake failed: " + e.getMessage());
+                connectionListener.onPairingSuccess();
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to send hello message: " + e.getMessage(), e);
+            if (connectionListener != null) {
+                connectionListener.onError("Hello message failed: " + e.getMessage());
             }
         }
     }
     
     /**
      * Handle message từ server
-     * Authorize response format:
-     * {
-     *   "header": {"name": "Authorize", "namespace": "ai.xiaoai.authorize", ...},
-     *   "payload": {"code": "0", "message": "success"}
-     * }
-     * code = "0" -> Success
-     * code != "0" -> Failed
      */
     private void handleMessage(String message) {
         try {
@@ -250,18 +333,6 @@ public class XiaozhiConnectionService extends Service {
             
             // Broadcast message received event
             eventBus.post(new MessageReceivedEvent(json));
-            
-            // Check if this is Authorize response
-            if (json.has("header")) {
-                JSONObject header = json.getJSONObject("header");
-                String name = header.optString("name", "");
-                String namespace = header.optString("namespace", "");
-                
-                if ("Authorize".equals(name) && "ai.xiaoai.authorize".equals(namespace)) {
-                    handleAuthorizeResponse(json);
-                    return;
-                }
-            }
             
             // Handle TTS messages
             String type = json.optString("type");
@@ -306,70 +377,6 @@ public class XiaozhiConnectionService extends Service {
             
         } catch (Exception e) {
             Log.e(TAG, "Error handling TTS message", e);
-        }
-    }
-    
-    /**
-     * Handle Authorize response
-     */
-    private void handleAuthorizeResponse(JSONObject json) {
-        try {
-            JSONObject payload = json.getJSONObject("payload");
-            String codeStr = payload.optString("code", "-1");
-            String serverMessage = payload.optString("message", "");
-            
-            int errorCode = ErrorCodes.parseErrorCode(codeStr);
-            
-            if ("0".equals(codeStr)) {
-                Log.i(TAG, "Pairing SUCCESS!");
-                
-                // Reset retry count on success
-                retryCount = 0;
-                isRetrying = false;
-                
-                // Mark as paired
-                PairingCodeGenerator.markAsPaired(this);
-                
-                // Post event thay vì chỉ callback
-                eventBus.post(new ConnectionEvent(true, "Pairing success"));
-                
-                // Update state
-                core.setDeviceState(DeviceState.IDLE);
-                
-                // Legacy callback (giữ cho backward compatibility)
-                if (connectionListener != null) {
-                    connectionListener.onPairingSuccess();
-                }
-            } else {
-                String errorMsg = ErrorCodes.getMessage(errorCode);
-                Log.e(TAG, "Pairing FAILED: code=" + errorCode +
-                    " (" + ErrorCodes.getEnglishMessage(errorCode) + ")");
-                
-                // Post event
-                eventBus.post(new ConnectionEvent(false, errorMsg));
-                
-                // Legacy callback
-                if (connectionListener != null) {
-                    connectionListener.onPairingFailed(errorMsg);
-                }
-                
-                // Retry if error is retryable
-                if (ErrorCodes.isRetryable(errorCode)) {
-                    scheduleReconnect(errorCode);
-                }
-            }
-            
-        } catch (JSONException e) {
-            Log.e(TAG, "Failed to parse Authorize response: " + e.getMessage(), e);
-            String errorMsg = ErrorCodes.getMessage(ErrorCodes.INVALID_MESSAGE_FORMAT);
-            
-            // Post event
-            eventBus.post(new ConnectionEvent(false, errorMsg));
-            
-            // Legacy callback
-            if (connectionListener != null) {
-                connectionListener.onPairingFailed(errorMsg);
-            }
         }
     }
     
@@ -563,6 +570,40 @@ public class XiaozhiConnectionService extends Service {
      */
     public boolean isConnected() {
         return webSocketClient != null && webSocketClient.isOpen();
+    }
+    
+    /**
+     * Check if device is activated
+     */
+    public boolean isActivated() {
+        return deviceActivator != null && deviceActivator.isActivated();
+    }
+    
+    /**
+     * Start device activation manually
+     */
+    public void startActivation() {
+        if (deviceActivator != null) {
+            deviceActivator.startActivation();
+        }
+    }
+    
+    /**
+     * Cancel device activation
+     */
+    public void cancelActivation() {
+        if (deviceActivator != null) {
+            deviceActivator.cancelActivation();
+        }
+    }
+    
+    /**
+     * Reset activation (for testing)
+     */
+    public void resetActivation() {
+        if (deviceActivator != null) {
+            deviceActivator.resetActivation();
+        }
     }
     
     @Override

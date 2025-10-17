@@ -43,9 +43,12 @@ public class MainActivity extends Activity {
     private TextView pairingCodeText;
     private TextView stateText;
     private TextView instructionsText;
+    private TextView activationCodeText;
+    private TextView activationProgressText;
     private Button connectButton;
     private Button copyButton;
     private Button resetButton;
+    private Button cancelActivationButton;
     
     // Core và EventBus
     private XiaozhiCore core;
@@ -67,8 +70,11 @@ public class MainActivity extends Activity {
             xiaozhiService = binder.getService();
             xiaozhiBound = true;
             
+            // Setup service listener
+            setupServiceListener();
+            
             Log.i(TAG, "Xiaozhi service bound");
-            checkPairingStatus();
+            checkActivationStatus();
         }
         
         @Override
@@ -114,6 +120,97 @@ public class MainActivity extends Activity {
         connectButton = (Button) findViewById(R.id.connectButton);
         copyButton = (Button) findViewById(R.id.copyButton);
         resetButton = (Button) findViewById(R.id.resetButton);
+        
+        // New activation UI components (optional - may not exist in layout yet)
+        activationCodeText = (TextView) findViewById(R.id.activationCodeText);
+        activationProgressText = (TextView) findViewById(R.id.activationProgressText);
+        cancelActivationButton = (Button) findViewById(R.id.cancelActivationButton);
+    }
+    
+    /**
+     * Setup service listener cho activation callbacks
+     */
+    private void setupServiceListener() {
+        if (xiaozhiService != null) {
+            xiaozhiService.setConnectionListener(new XiaozhiConnectionService.ConnectionListener() {
+                @Override
+                public void onConnected() {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            updateStatus("WebSocket ket noi thanh cong");
+                        }
+                    });
+                }
+                
+                @Override
+                public void onDisconnected() {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            updateStatus("Ngat ket noi");
+                            connectButton.setEnabled(true);
+                        }
+                    });
+                }
+                
+                @Override
+                public void onActivationRequired(final String verificationCode) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            showActivationCode(verificationCode);
+                        }
+                    });
+                }
+                
+                @Override
+                public void onActivationProgress(final int attempt, final int maxAttempts) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            updateActivationProgress(attempt, maxAttempts);
+                        }
+                    });
+                }
+                
+                @Override
+                public void onPairingSuccess() {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            onConnectionSuccess();
+                        }
+                    });
+                }
+                
+                @Override
+                public void onPairingFailed(final String error) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            onConnectionFailed(error);
+                        }
+                    });
+                }
+                
+                @Override
+                public void onMessage(String message) {
+                    // Handle messages if needed
+                }
+                
+                @Override
+                public void onError(final String error) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            updateStatus("[ERROR] " + error);
+                            Toast.makeText(MainActivity.this, error, Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                }
+            });
+        }
     }
     
     private void registerEventListeners() {
@@ -190,16 +287,25 @@ public class MainActivity extends Activity {
         copyButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                copyPairingCode();
+                copyActivationCode();
             }
         });
         
         resetButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                resetPairing();
+                resetActivation();
             }
         });
+        
+        if (cancelActivationButton != null) {
+            cancelActivationButton.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    cancelActivation();
+                }
+            });
+        }
     }
     
     private void startAllServices() {
@@ -216,56 +322,147 @@ public class MainActivity extends Activity {
     }
     
     /**
-     * Check pairing status và hiển thị code
+     * Check activation status (py-xiaozhi method)
      */
-    private void checkPairingStatus() {
-        boolean isPaired = PairingCodeGenerator.isPaired(this);
-        
-        if (isPaired) {
-            updateStatus("[OK] Da ghep noi - San sang su dung");
-            pairingCodeText.setText("[OK] Da Ghep Noi");
+    private void checkActivationStatus() {
+        if (xiaozhiService != null && xiaozhiService.isActivated()) {
+            updateStatus("[OK] Thiet bi da kich hoat - San sang su dung");
+            pairingCodeText.setText("[OK] Da Kich Hoat");
             instructionsText.setVisibility(View.GONE);
             copyButton.setVisibility(View.GONE);
             connectButton.setEnabled(false);
+            hideActivationUI();
         } else {
-            // Hiển thị pairing code LOCAL
-            String deviceId = PairingCodeGenerator.getDeviceId(this);
-            String pairingCode = PairingCodeGenerator.getPairingCode(this);
-            String formattedCode = PairingCodeGenerator.formatPairingCode(pairingCode);
-            
-            updateStatus("[!] Chua ghep noi - Lam theo huong dan ben duoi");
-            pairingCodeText.setText(formattedCode);
+            updateStatus("[!] Chua kich hoat - Bam 'Ket Noi' de bat dau");
+            pairingCodeText.setText("Chua kich hoat");
             instructionsText.setVisibility(View.VISIBLE);
-            copyButton.setVisibility(View.VISIBLE);
+            if (instructionsText != null) {
+                instructionsText.setText("Bam nut 'Ket Noi' de bat dau kich hoat thiet bi");
+            }
+            copyButton.setVisibility(View.GONE);
             connectButton.setEnabled(true);
-            
-            Log.i(TAG, "=== DEVICE INFO ===");
-            Log.i(TAG, "Device ID: " + deviceId);
-            Log.i(TAG, "Pairing Code: " + pairingCode);
-            Log.i(TAG, "Formatted: " + formattedCode);
-            Log.i(TAG, "==================");
+            hideActivationUI();
         }
     }
     
     /**
-     * Copy pairing code to clipboard
+     * Show activation code UI
      */
-    private void copyPairingCode() {
-        String pairingCode = PairingCodeGenerator.getPairingCode(this);
+    private void showActivationCode(String verificationCode) {
+        updateStatus("Dang cho kich hoat...");
         
-        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-        ClipData clip = ClipData.newPlainText("Xiaozhi Pairing Code", pairingCode);
-        clipboard.setPrimaryClip(clip);
+        if (activationCodeText != null) {
+            activationCodeText.setText("Ma kich hoat: " + verificationCode);
+            activationCodeText.setVisibility(View.VISIBLE);
+        } else {
+            // Fallback to pairingCodeText
+            pairingCodeText.setText("Ma: " + verificationCode);
+        }
         
-        Toast.makeText(this,
-            "[OK] Da sao chep ma: " + pairingCode,
-            Toast.LENGTH_SHORT).show();
+        if (instructionsText != null) {
+            instructionsText.setText(
+                "Truy cap: https://xiaozhi.me/activate\n" +
+                "Nhap ma: " + verificationCode + "\n" +
+                "Hoac sao chep ma va dan vao trang web"
+            );
+            instructionsText.setVisibility(View.VISIBLE);
+        }
         
-        Log.i(TAG, "Pairing code copied: " + pairingCode);
+        copyButton.setVisibility(View.VISIBLE);
+        connectButton.setEnabled(false);
+        
+        if (cancelActivationButton != null) {
+            cancelActivationButton.setVisibility(View.VISIBLE);
+        }
+        
+        Toast.makeText(this, "Nhap ma vao trang web: " + verificationCode, Toast.LENGTH_LONG).show();
+        
+        Log.i(TAG, "=== ACTIVATION CODE ===");
+        Log.i(TAG, "Verification Code: " + verificationCode);
+        Log.i(TAG, "URL: https://xiaozhi.me/activate");
+        Log.i(TAG, "======================");
     }
     
     /**
-     * Connect to Xiaozhi và gửi Authorize handshake
+     * Update activation progress
+     */
+    private void updateActivationProgress(int attempt, int maxAttempts) {
+        String progress = "Dang kiem tra... (" + attempt + "/" + maxAttempts + ")";
+        
+        if (activationProgressText != null) {
+            activationProgressText.setText(progress);
+            activationProgressText.setVisibility(View.VISIBLE);
+        } else {
+            updateStatus(progress);
+        }
+    }
+    
+    /**
+     * Hide activation UI elements
+     */
+    private void hideActivationUI() {
+        if (activationCodeText != null) {
+            activationCodeText.setVisibility(View.GONE);
+        }
+        if (activationProgressText != null) {
+            activationProgressText.setVisibility(View.GONE);
+        }
+        if (cancelActivationButton != null) {
+            cancelActivationButton.setVisibility(View.GONE);
+        }
+    }
+    
+    /**
+     * Handle successful connection
+     */
+    private void onConnectionSuccess() {
+        updateStatus("[OK] Ket noi thanh cong!");
+        Toast.makeText(this, "Ket noi thanh cong!", Toast.LENGTH_SHORT).show();
+        pairingCodeText.setText("Da Ket Noi");
+        connectButton.setEnabled(false);
+        instructionsText.setVisibility(View.GONE);
+        copyButton.setVisibility(View.GONE);
+        hideActivationUI();
+    }
+    
+    /**
+     * Handle connection failure
+     */
+    private void onConnectionFailed(String error) {
+        updateStatus("[FAIL] " + error);
+        Toast.makeText(this, "Loi: " + error, Toast.LENGTH_SHORT).show();
+        connectButton.setEnabled(true);
+        hideActivationUI();
+    }
+    
+    /**
+     * Copy activation code to clipboard
+     */
+    private void copyActivationCode() {
+        String code = null;
+        
+        if (activationCodeText != null && activationCodeText.getVisibility() == View.VISIBLE) {
+            String text = activationCodeText.getText().toString();
+            if (text.contains(":")) {
+                code = text.substring(text.indexOf(":") + 1).trim();
+            }
+        }
+        
+        if (code == null || code.isEmpty()) {
+            Toast.makeText(this, "Khong co ma de sao chep", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        ClipData clip = ClipData.newPlainText("Xiaozhi Activation Code", code);
+        clipboard.setPrimaryClip(clip);
+        
+        Toast.makeText(this, "[OK] Da sao chep ma: " + code, Toast.LENGTH_SHORT).show();
+        Log.i(TAG, "Activation code copied: " + code);
+    }
+    
+    /**
+     * Connect to Xiaozhi (py-xiaozhi method with activation)
      */
     private void connectToXiaozhi() {
         if (!xiaozhiBound) {
@@ -273,29 +470,46 @@ public class MainActivity extends Activity {
             return;
         }
         
-        updateStatus("Dang ket noi...");
+        updateStatus("Dang bat dau kich hoat...");
         connectButton.setEnabled(false);
         
-        // Connect sẽ tự động gửi Authorize handshake
+        // Connect will check activation and start flow if needed
         xiaozhiService.connect();
         
-        Log.i(TAG, "Connecting to Xiaozhi...");
+        Log.i(TAG, "Starting connection/activation...");
     }
     
     /**
-     * Reset pairing status
+     * Cancel activation
      */
-    private void resetPairing() {
-        PairingCodeGenerator.resetPairing(this);
-        
-        if (xiaozhiBound && xiaozhiService.isConnected()) {
-            xiaozhiService.disconnect();
+    private void cancelActivation() {
+        if (xiaozhiService != null) {
+            xiaozhiService.cancelActivation();
         }
         
-        checkPairingStatus();
+        updateStatus("Da huy kich hoat");
+        connectButton.setEnabled(true);
+        hideActivationUI();
         
-        Toast.makeText(this, "Da reset - Vui long ghep noi lai", Toast.LENGTH_SHORT).show();
-        Log.i(TAG, "Pairing reset");
+        Toast.makeText(this, "Da huy kich hoat", Toast.LENGTH_SHORT).show();
+        Log.i(TAG, "Activation cancelled");
+    }
+    
+    /**
+     * Reset activation (py-xiaozhi method)
+     */
+    private void resetActivation() {
+        if (xiaozhiService != null) {
+            if (xiaozhiService.isConnected()) {
+                xiaozhiService.disconnect();
+            }
+            xiaozhiService.resetActivation();
+        }
+        
+        checkActivationStatus();
+        
+        Toast.makeText(this, "Da reset - Vui long kich hoat lai", Toast.LENGTH_SHORT).show();
+        Log.i(TAG, "Activation reset");
     }
     
     /**
