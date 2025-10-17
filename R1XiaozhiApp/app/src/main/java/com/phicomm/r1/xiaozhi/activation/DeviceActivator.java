@@ -29,9 +29,14 @@ public class DeviceActivator {
     
     private final Context context;
     private final DeviceFingerprint fingerprint;
+    private final OTAConfigManager otaManager;
     private final ExecutorService executor;
     private final Handler mainHandler;
     private final AtomicBoolean isActivating = new AtomicBoolean(false);
+    
+    // Activation data from server
+    private String serverChallenge;
+    private String verificationCode;
     
     private ActivationListener listener;
     
@@ -45,6 +50,7 @@ public class DeviceActivator {
     public DeviceActivator(Context context) {
         this.context = context.getApplicationContext();
         this.fingerprint = DeviceFingerprint.getInstance(context);
+        this.otaManager = new OTAConfigManager(context);
         this.executor = Executors.newSingleThreadExecutor();
         this.mainHandler = new Handler(Looper.getMainLooper());
     }
@@ -55,6 +61,7 @@ public class DeviceActivator {
     
     /**
      * Start activation process
+     * STEP 1: Fetch OTA config to get challenge + code from server
      */
     public void startActivation() {
         if (isActivating.getAndSet(true)) {
@@ -69,12 +76,55 @@ public class DeviceActivator {
             return;
         }
         
-        executor.execute(new Runnable() {
+        Log.i(TAG, "Starting activation - Fetching OTA config...");
+        
+        // STEP 1: Get OTA config (includes activation data if not activated)
+        otaManager.fetchOTAConfig(new OTAConfigManager.OTACallback() {
             @Override
-            public void run() {
-                performActivation();
+            public void onSuccess(OTAConfigManager.OTAResponse response) {
+                handleOTAResponse(response);
+            }
+            
+            @Override
+            public void onError(String error) {
+                Log.e(TAG, "OTA config fetch failed: " + error);
+                notifyError("Failed to fetch configuration: " + error);
+                isActivating.set(false);
             }
         });
+    }
+    
+    /**
+     * Handle OTA response
+     * STEP 2: Parse activation data or proceed if already activated
+     */
+    private void handleOTAResponse(OTAConfigManager.OTAResponse response) {
+        if (response.activation != null) {
+            // Device needs activation - got challenge + code from server
+            serverChallenge = response.activation.challenge;
+            verificationCode = response.activation.code;
+            
+            Log.i(TAG, "Activation required - Challenge received from server");
+            Log.i(TAG, "Verification code: " + verificationCode);
+            
+            // Notify UI to display code
+            notifyVerificationCode(verificationCode);
+            
+            // STEP 3: Start polling activation API
+            executor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    performActivationPolling();
+                }
+            });
+            
+        } else {
+            // No activation data - device already activated on server
+            Log.i(TAG, "Device already activated on server");
+            fingerprint.setActivationStatus(true);
+            notifySuccess(fingerprint.getAccessToken());
+            isActivating.set(false);
+        }
     }
     
     /**
@@ -86,9 +136,10 @@ public class DeviceActivator {
     }
     
     /**
-     * Perform activation flow
+     * Perform activation polling
+     * STEP 3: Poll activation API with server challenge
      */
-    private void performActivation() {
+    private void performActivationPolling() {
         try {
             String serialNumber = fingerprint.getSerialNumber();
             String deviceId = fingerprint.getMacAddress();
@@ -98,7 +149,12 @@ public class DeviceActivator {
                 return;
             }
             
-            Log.i(TAG, "Starting activation for device: " + deviceId);
+            if (serverChallenge == null) {
+                notifyError("Server challenge not received");
+                return;
+            }
+            
+            Log.i(TAG, "Starting activation polling with server challenge");
             
             // Retry loop
             for (int attempt = 1; attempt <= MAX_RETRIES && isActivating.get(); attempt++) {
@@ -106,10 +162,12 @@ public class DeviceActivator {
                 notifyProgress(attempt, MAX_RETRIES);
                 
                 try {
-                    ActivationResponse response = sendActivationRequest(serialNumber, deviceId);
+                    ActivationResponse response = sendActivationRequest(
+                        serialNumber, deviceId, serverChallenge
+                    );
                     
                     if (response.success) {
-                        // Activation successful
+                        // Activation successful - user entered code on website
                         Log.i(TAG, "Activation successful!");
                         fingerprint.setActivationStatus(true);
                         if (response.accessToken != null) {
@@ -120,11 +178,8 @@ public class DeviceActivator {
                         return;
                         
                     } else if (response.statusCode == 202) {
-                        // Waiting for user input
-                        if (attempt == 1 && response.verificationCode != null) {
-                            notifyVerificationCode(response.verificationCode);
-                        }
-                        Log.i(TAG, "Waiting for user to enter verification code...");
+                        // Still waiting for user input
+                        Log.i(TAG, "Waiting for user to enter verification code on website...");
                         Thread.sleep(RETRY_INTERVAL_MS);
                         
                     } else {
@@ -148,7 +203,7 @@ public class DeviceActivator {
             }
             
         } catch (Exception e) {
-            Log.e(TAG, "Activation process failed", e);
+            Log.e(TAG, "Activation polling failed", e);
             notifyError("Activation failed: " + e.getMessage());
         } finally {
             isActivating.set(false);
@@ -157,14 +212,13 @@ public class DeviceActivator {
     
     /**
      * Send activation request to server
+     * STEP 4: POST activation with server challenge + HMAC
      */
-    private ActivationResponse sendActivationRequest(String serialNumber, String deviceId) throws Exception {
+    private ActivationResponse sendActivationRequest(
+        String serialNumber, String deviceId, String challenge
+    ) throws Exception {
         
-        // For first request, we need to get challenge from server
-        // In py-xiaozhi, this comes from server's activation flow
-        // For now, we'll use a simplified approach
-        
-        String challenge = "xiaozhi-activation-" + System.currentTimeMillis();
+        // Generate HMAC with server challenge (NOT self-generated!)
         String hmac = fingerprint.generateHmac(challenge);
         
         if (hmac == null) {
