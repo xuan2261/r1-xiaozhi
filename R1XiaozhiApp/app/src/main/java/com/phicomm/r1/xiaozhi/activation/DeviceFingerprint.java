@@ -92,6 +92,7 @@ public class DeviceFingerprint {
     
     /**
      * Retrieve MAC address from system
+     * IMPORTANT: Returns format with colons "aa:bb:cc:dd:ee:ff" to match py-xiaozhi
      */
     private String retrieveMacAddress() {
         try {
@@ -103,8 +104,8 @@ public class DeviceFingerprint {
                 String macAddress = wifiInfo.getMacAddress();
                 
                 if (macAddress != null && !macAddress.equals("02:00:00:00:00:00")) {
-                    // Normalize: remove colons, lowercase
-                    return macAddress.replace(":", "").toLowerCase();
+                    // Normalize: ensure lowercase with colons (match py-xiaozhi format)
+                    return normalizeMacAddress(macAddress);
                 }
             }
         } catch (Exception e) {
@@ -119,11 +120,12 @@ public class DeviceFingerprint {
             );
             
             if (androidId != null && !androidId.equals("9774d56d682e549c")) {
-                // Pad to 12 chars
+                // Pad to 12 chars and format with colons
                 while (androidId.length() < 12) {
                     androidId = "0" + androidId;
                 }
-                return androidId.substring(0, 12).toLowerCase();
+                String cleanId = androidId.substring(0, 12).toLowerCase();
+                return formatMacAddress(cleanId);
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to get Android ID: " + e.getMessage());
@@ -132,29 +134,68 @@ public class DeviceFingerprint {
         // Last resort: timestamp-based
         String fallback = String.format("%012x", System.currentTimeMillis() & 0xFFFFFFFFFFL);
         Log.w(TAG, "Using timestamp-based MAC: " + fallback);
-        return fallback;
+        return formatMacAddress(fallback);
+    }
+    
+    /**
+     * Normalize MAC address to standard format: "aa:bb:cc:dd:ee:ff"
+     * Based on py-xiaozhi _normalize_mac_address() - line 70-94
+     */
+    private String normalizeMacAddress(String macAddress) {
+        if (macAddress == null || macAddress.isEmpty()) {
+            return macAddress;
+        }
+        
+        // Remove all separators (colons, dashes, spaces)
+        String clean = macAddress.replaceAll("[^a-fA-F0-9]", "");
+        
+        // Ensure length is 12
+        if (clean.length() != 12) {
+            Log.w(TAG, "Invalid MAC length: " + macAddress);
+            return macAddress.toLowerCase();
+        }
+        
+        return formatMacAddress(clean);
+    }
+    
+    /**
+     * Format 12-char hex string to MAC address format with colons
+     * Example: "aabbccddeeff" -> "aa:bb:cc:dd:ee:ff"
+     */
+    private String formatMacAddress(String cleanMac) {
+        StringBuilder formatted = new StringBuilder();
+        for (int i = 0; i < 12; i += 2) {
+            if (i > 0) formatted.append(":");
+            formatted.append(cleanMac.substring(i, i + 2));
+        }
+        return formatted.toString().toLowerCase();
     }
     
     /**
      * Generate serial number from MAC address
-     * Format: SN-{hash}-{mac}
+     * Format: SN-{hash}-{mac_without_colons}
+     * Based on py-xiaozhi generate_serial_number() - line 201-229
      */
     private String generateSerialNumber(String macAddress) {
         try {
+            // Remove colons for serial number (match py-xiaozhi line 226)
+            String macClean = macAddress.replace(":", "").toLowerCase();
+            
             MessageDigest md = MessageDigest.getInstance("MD5");
-            byte[] hash = md.digest(macAddress.getBytes());
+            byte[] hash = md.digest(macClean.getBytes());
             
             StringBuilder shortHash = new StringBuilder();
             for (int i = 0; i < 4; i++) {
                 shortHash.append(String.format("%02X", hash[i]));
             }
             
-            return "SN-" + shortHash + "-" + macAddress.toUpperCase();
+            return "SN-" + shortHash + "-" + macClean;
             
         } catch (Exception e) {
             Log.e(TAG, "Failed to generate serial number", e);
-            return "SN-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase() + 
-                   "-" + macAddress.toUpperCase();
+            String macClean = macAddress.replace(":", "").toLowerCase();
+            return "SN-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase() +
+                   "-" + macClean;
         }
     }
     
