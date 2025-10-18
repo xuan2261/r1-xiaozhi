@@ -192,11 +192,18 @@ public class XiaozhiConnectionService extends Service {
         
         try {
             URI serverUri = new URI(XiaozhiConfig.WEBSOCKET_URL);
-            Log.i(TAG, "Connecting with token to: " + serverUri);
+            
+            // Enhanced logging for debugging
+            Log.i(TAG, "=== WEBSOCKET CONNECTION ===");
+            Log.i(TAG, "URL: " + XiaozhiConfig.WEBSOCKET_URL);
+            Log.i(TAG, "Token (first 30 chars): " + (accessToken.length() > 30 ? accessToken.substring(0, 30) + "..." : accessToken));
+            Log.i(TAG, "Token length: " + accessToken.length());
+            Log.i(TAG, "============================");
             
             // Create headers with Bearer token
             Map<String, String> headers = new HashMap<>();
             headers.put("Authorization", "Bearer " + accessToken);
+            Log.i(TAG, "Headers: " + headers.toString());
             
             webSocketClient = new WebSocketClient(serverUri, headers) {
                 @Override
@@ -222,7 +229,12 @@ public class XiaozhiConnectionService extends Service {
                 
                 @Override
                 public void onClose(int code, String reason, boolean remote) {
-                    Log.w(TAG, "WebSocket closed: " + reason + " (code: " + code + ")");
+                    // Enhanced logging
+                    Log.w(TAG, "=== WEBSOCKET CLOSED ===");
+                    Log.w(TAG, "Code: " + code);
+                    Log.w(TAG, "Reason: " + reason);
+                    Log.w(TAG, "Remote: " + remote);
+                    Log.w(TAG, "========================");
                     
                     if (connectionListener != null) {
                         connectionListener.onDisconnected();
@@ -236,11 +248,17 @@ public class XiaozhiConnectionService extends Service {
                 
                 @Override
                 public void onError(Exception ex) {
-                    Log.e(TAG, "WebSocket error: " + ex.getMessage(), ex);
+                    // Enhanced error logging
+                    Log.e(TAG, "=== WEBSOCKET ERROR ===");
+                    Log.e(TAG, "Error class: " + ex.getClass().getName());
+                    Log.e(TAG, "Error message: " + ex.getMessage());
+                    Log.e(TAG, "Stack trace:");
+                    ex.printStackTrace();
+                    Log.e(TAG, "======================");
                     
                     String errorMsg = ErrorCodes.getMessage(ErrorCodes.WEBSOCKET_ERROR);
                     if (connectionListener != null) {
-                        connectionListener.onError(errorMsg);
+                        connectionListener.onError(errorMsg + ": " + ex.getMessage());
                     }
                     
                     // Retry on error
