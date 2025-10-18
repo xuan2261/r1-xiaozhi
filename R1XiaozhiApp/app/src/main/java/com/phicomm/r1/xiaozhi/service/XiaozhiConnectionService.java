@@ -17,6 +17,7 @@ import com.phicomm.r1.xiaozhi.core.XiaozhiCore;
 import com.phicomm.r1.xiaozhi.events.ConnectionEvent;
 import com.phicomm.r1.xiaozhi.events.MessageReceivedEvent;
 import com.phicomm.r1.xiaozhi.util.ErrorCodes;
+import com.phicomm.r1.xiaozhi.util.TrustAllCertificates;
 
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
@@ -274,6 +275,21 @@ public class XiaozhiConnectionService extends Service {
                     scheduleReconnect(ErrorCodes.WEBSOCKET_ERROR);
                 }
             };
+            
+            // Handle SSL certificate validation
+            if (serverUri.getScheme().equals("wss")) {
+                if (XiaozhiConfig.BYPASS_SSL_VALIDATION) {
+                    // ⚠️ BYPASS SSL VALIDATION FOR EXPIRED CERTIFICATES
+                    Log.w(TAG, "⚠️ ============================================");
+                    Log.w(TAG, "⚠️ SSL CERTIFICATE VALIDATION BYPASSED!");
+                    Log.w(TAG, "⚠️ THIS IS INSECURE - FOR TESTING ONLY!");
+                    Log.w(TAG, "⚠️ NEVER USE IN PRODUCTION!");
+                    Log.w(TAG, "⚠️ ============================================");
+                    webSocketClient.setSocketFactory(TrustAllCertificates.getSSLSocketFactory());
+                } else {
+                    Log.i(TAG, "SSL validation enabled (secure connection)");
+                }
+            }
             
             webSocketClient.connect();
             

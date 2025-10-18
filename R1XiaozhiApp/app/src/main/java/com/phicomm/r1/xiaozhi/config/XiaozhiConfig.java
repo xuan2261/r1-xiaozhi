@@ -12,6 +12,13 @@ public class XiaozhiConfig {
     public static final String WEBSOCKET_URL = "wss://xiaozhi.me/v1/ws";
     public static final String CLIENT_ID = "1000013";
     
+    // SSL Certificate Validation
+    // ⚠️ WARNING: Set to true ONLY for testing with expired certificates!
+    // ⚠️ NEVER enable in production - serious security risk!
+    // Server certificate expired: Nov 08, 2024
+    // Enable this to bypass SSL validation for testing purposes
+    public static final boolean BYPASS_SSL_VALIDATION = true; // TODO: Set false in production!
+    
     private static final String PREFS_NAME = "xiaozhi_config";
     private static final String KEY_USE_CLOUD = "use_cloud";
     private static final String KEY_CLOUD_URL = "cloud_url";
