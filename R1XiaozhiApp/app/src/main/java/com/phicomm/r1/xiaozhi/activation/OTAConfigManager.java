@@ -28,7 +28,7 @@ import java.util.concurrent.Executors;
 public class OTAConfigManager {
     
     private static final String TAG = "OTAConfigManager";
-    private static final String OTA_URL = "https://api.tenclass.net/xiaozhi/ota/version";
+    private static final String OTA_URL = "https://api.tenclass.net/xiaozhi/ota/";
     private static final String APP_VERSION = "1.0.0";
     private static final String BOARD_TYPE = "android";
     private static final String APP_NAME = "xiaozhi-android";
