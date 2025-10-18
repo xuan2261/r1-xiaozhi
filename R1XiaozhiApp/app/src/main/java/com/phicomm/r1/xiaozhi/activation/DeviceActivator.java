@@ -170,10 +170,20 @@ public class DeviceActivator {
                         // Activation successful - user entered code on website
                         Log.i(TAG, "Activation successful!");
                         fingerprint.setActivationStatus(true);
-                        if (response.accessToken != null) {
-                            fingerprint.setAccessToken(response.accessToken);
+                        
+                        // Get or generate access token
+                        String accessToken = response.accessToken;
+                        if (accessToken == null || accessToken.isEmpty()) {
+                            // Generate token from device ID if server doesn't provide one
+                            Log.i(TAG, "Server didn't provide token, generating from device ID");
+                            accessToken = generateAccessToken(deviceId, serialNumber);
                         }
-                        notifySuccess(response.accessToken);
+                        
+                        // Save access token
+                        fingerprint.setAccessToken(accessToken);
+                        Log.i(TAG, "Access token saved: " + (accessToken != null ? accessToken.substring(0, Math.min(30, accessToken.length())) + "..." : "null"));
+                        
+                        notifySuccess(accessToken);
                         isActivating.set(false);
                         return;
                         
@@ -382,6 +392,24 @@ public class DeviceActivator {
     public void resetActivation() {
         fingerprint.resetIdentity();
         Log.i(TAG, "Activation reset");
+    }
+    
+    /**
+     * Generate access token from device credentials
+     * Fallback if server doesn't provide token
+     */
+    private String generateAccessToken(String deviceId, String serialNumber) {
+        try {
+            // Simple token generation: Base64(deviceId:serialNumber:timestamp)
+            String tokenData = deviceId + ":" + serialNumber + ":" + System.currentTimeMillis();
+            return android.util.Base64.encodeToString(
+                tokenData.getBytes("UTF-8"),
+                android.util.Base64.NO_WRAP
+            );
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to generate access token", e);
+            return null;
+        }
     }
     
     /**

@@ -190,6 +190,15 @@ public class XiaozhiConnectionService extends Service {
             return;
         }
         
+        // Validate token
+        if (accessToken == null || accessToken.isEmpty()) {
+            Log.e(TAG, "Cannot connect - access token is null or empty");
+            if (connectionListener != null) {
+                connectionListener.onError("No access token available. Please activate device first.");
+            }
+            return;
+        }
+        
         try {
             URI serverUri = new URI(XiaozhiConfig.WEBSOCKET_URL);
             
