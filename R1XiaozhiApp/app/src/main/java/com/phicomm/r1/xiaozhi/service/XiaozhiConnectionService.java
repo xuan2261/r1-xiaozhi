@@ -17,7 +17,7 @@ import com.phicomm.r1.xiaozhi.core.XiaozhiCore;
 import com.phicomm.r1.xiaozhi.events.ConnectionEvent;
 import com.phicomm.r1.xiaozhi.events.MessageReceivedEvent;
 import com.phicomm.r1.xiaozhi.util.ErrorCodes;
-import com.phicomm.r1.xiaozhi.util.TrustAllCertificates;
+import com.phicomm.r1.xiaozhi.util.TrustAllWebSocketClient;
 
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
@@ -216,7 +216,7 @@ public class XiaozhiConnectionService extends Service {
             Log.i(TAG, "============================");
             
             // Create headers with Bearer token
-            Map<String, String> headers = new HashMap<>();
+            final Map<String, String> headers = new HashMap<>();
             headers.put("Authorization", "Bearer " + accessToken);
             Log.i(TAG, "Headers: " + headers.toString());
             
@@ -231,7 +231,9 @@ public class XiaozhiConnectionService extends Service {
                 Log.w(TAG, "⚠️ ============================================");
             }
             
-            webSocketClient = new WebSocketClient(serverUri, headers) {
+            // Use custom TrustAllWebSocketClient if SSL bypass needed
+            if (bypassSSL) {
+                webSocketClient = new TrustAllWebSocketClient(serverUri, headers) {
                 @Override
                 public void onOpen(ServerHandshake handshakedata) {
                     Log.i(TAG, "WebSocket connected with token");
@@ -291,20 +293,68 @@ public class XiaozhiConnectionService extends Service {
                     scheduleReconnect(ErrorCodes.WEBSOCKET_ERROR);
                 }
             };
-            
-            // For Java-WebSocket library, we need to set socket factory BEFORE connect
-            if (bypassSSL) {
-                try {
-                    // Use reflection to set SSL socket factory
-                    java.lang.reflect.Field socketFactoryField = webSocketClient.getClass().getDeclaredField("socketFactory");
-                    socketFactoryField.setAccessible(true);
-                    socketFactoryField.set(webSocketClient, TrustAllCertificates.getSSLSocketFactory());
-                    Log.d(TAG, "SSL socket factory set successfully");
-                } catch (Exception e) {
-                    Log.e(TAG, "Failed to set SSL socket factory via reflection", e);
-                    // Try alternative: Set via system property (less reliable)
-                    System.setProperty("javax.net.ssl.trustAll", "true");
-                }
+            } else {
+                // Use regular WebSocketClient for non-SSL or when bypass disabled
+                webSocketClient = new WebSocketClient(serverUri, headers) {
+                    @Override
+                    public void onOpen(ServerHandshake handshakedata) {
+                        Log.i(TAG, "WebSocket connected with token");
+                        if (connectionListener != null) {
+                            connectionListener.onConnected();
+                        }
+                        
+                        // Send hello message (py-xiaozhi method)
+                        sendHelloMessage();
+                    }
+                    
+                    @Override
+                    public void onMessage(String message) {
+                        Log.d(TAG, "Message received: " + message);
+                        handleMessage(message);
+                        
+                        if (connectionListener != null) {
+                            connectionListener.onMessage(message);
+                        }
+                    }
+                    
+                    @Override
+                    public void onClose(int code, String reason, boolean remote) {
+                        // Enhanced logging
+                        Log.w(TAG, "=== WEBSOCKET CLOSED ===");
+                        Log.w(TAG, "Code: " + code);
+                        Log.w(TAG, "Reason: " + reason);
+                        Log.w(TAG, "Remote: " + remote);
+                        Log.w(TAG, "========================");
+                        
+                        if (connectionListener != null) {
+                            connectionListener.onDisconnected();
+                        }
+                        
+                        // Auto retry if not manually disconnected
+                        if (remote && !isRetrying) {
+                            scheduleReconnect(ErrorCodes.WEBSOCKET_ERROR);
+                        }
+                    }
+                    
+                    @Override
+                    public void onError(Exception ex) {
+                        // Enhanced error logging
+                        Log.e(TAG, "=== WEBSOCKET ERROR ===");
+                        Log.e(TAG, "Error class: " + ex.getClass().getName());
+                        Log.e(TAG, "Error message: " + ex.getMessage());
+                        Log.e(TAG, "Stack trace:");
+                        ex.printStackTrace();
+                        Log.e(TAG, "======================");
+                        
+                        String errorMsg = ErrorCodes.getMessage(ErrorCodes.WEBSOCKET_ERROR);
+                        if (connectionListener != null) {
+                            connectionListener.onError(errorMsg + ": " + ex.getMessage());
+                        }
+                        
+                        // Retry on error
+                        scheduleReconnect(ErrorCodes.WEBSOCKET_ERROR);
+                    }
+                };
             }
             
             webSocketClient.connect();
