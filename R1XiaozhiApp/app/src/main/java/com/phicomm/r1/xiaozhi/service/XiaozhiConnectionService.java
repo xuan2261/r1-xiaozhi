@@ -24,10 +24,15 @@ import org.java_websocket.handshake.ServerHandshake;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.IOException;
+import java.net.Socket;
 import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
 
 /**
  * Service quản lý kết nối WebSocket với Xiaozhi Cloud
@@ -215,7 +220,26 @@ public class XiaozhiConnectionService extends Service {
             headers.put("Authorization", "Bearer " + accessToken);
             Log.i(TAG, "Headers: " + headers.toString());
             
+            // Check if SSL bypass is needed
+            final boolean bypassSSL = serverUri.getScheme().equals("wss") && XiaozhiConfig.BYPASS_SSL_VALIDATION;
+            
+            if (bypassSSL) {
+                Log.w(TAG, "⚠️ ============================================");
+                Log.w(TAG, "⚠️ SSL CERTIFICATE VALIDATION BYPASSED!");
+                Log.w(TAG, "⚠️ THIS IS INSECURE - FOR TESTING ONLY!");
+                Log.w(TAG, "⚠️ NEVER USE IN PRODUCTION!");
+                Log.w(TAG, "⚠️ ============================================");
+            }
+            
             webSocketClient = new WebSocketClient(serverUri, headers) {
+                
+                @Override
+                protected void onSetSSLParameters(javax.net.ssl.SSLParameters sslParameters) {
+                    // Called before SSL handshake - can customize SSL parameters here
+                    if (bypassSSL) {
+                        Log.d(TAG, "Setting custom SSL parameters (bypass mode)");
+                    }
+                }
                 @Override
                 public void onOpen(ServerHandshake handshakedata) {
                     Log.i(TAG, "WebSocket connected with token");
@@ -276,18 +300,18 @@ public class XiaozhiConnectionService extends Service {
                 }
             };
             
-            // Handle SSL certificate validation
-            if (serverUri.getScheme().equals("wss")) {
-                if (XiaozhiConfig.BYPASS_SSL_VALIDATION) {
-                    // ⚠️ BYPASS SSL VALIDATION FOR EXPIRED CERTIFICATES
-                    Log.w(TAG, "⚠️ ============================================");
-                    Log.w(TAG, "⚠️ SSL CERTIFICATE VALIDATION BYPASSED!");
-                    Log.w(TAG, "⚠️ THIS IS INSECURE - FOR TESTING ONLY!");
-                    Log.w(TAG, "⚠️ NEVER USE IN PRODUCTION!");
-                    Log.w(TAG, "⚠️ ============================================");
-                    webSocketClient.setSocketFactory(TrustAllCertificates.getSSLSocketFactory());
-                } else {
-                    Log.i(TAG, "SSL validation enabled (secure connection)");
+            // For Java-WebSocket library, we need to set socket factory BEFORE connect
+            if (bypassSSL) {
+                try {
+                    // Use reflection to set SSL socket factory
+                    java.lang.reflect.Field socketFactoryField = webSocketClient.getClass().getDeclaredField("socketFactory");
+                    socketFactoryField.setAccessible(true);
+                    socketFactoryField.set(webSocketClient, TrustAllCertificates.getSSLSocketFactory());
+                    Log.d(TAG, "SSL socket factory set successfully");
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to set SSL socket factory via reflection", e);
+                    // Try alternative: Set via system property (less reliable)
+                    System.setProperty("javax.net.ssl.trustAll", "true");
                 }
             }
             
