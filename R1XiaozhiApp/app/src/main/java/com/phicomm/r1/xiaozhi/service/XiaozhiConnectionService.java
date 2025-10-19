@@ -232,14 +232,6 @@ public class XiaozhiConnectionService extends Service {
             }
             
             webSocketClient = new WebSocketClient(serverUri, headers) {
-                
-                @Override
-                protected void onSetSSLParameters(javax.net.ssl.SSLParameters sslParameters) {
-                    // Called before SSL handshake - can customize SSL parameters here
-                    if (bypassSSL) {
-                        Log.d(TAG, "Setting custom SSL parameters (bypass mode)");
-                    }
-                }
                 @Override
                 public void onOpen(ServerHandshake handshakedata) {
                     Log.i(TAG, "WebSocket connected with token");
