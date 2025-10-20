@@ -10,7 +10,10 @@ android {
         targetSdkVersion 22
         versionCode 1
         versionName "1.0.0"
-        
+
+        // Enable multidex support for API 21+
+        multiDexEnabled true
+
         ndk {
             abiFilters "armeabi-v7a"  // R1 chỉ hỗ trợ ARMv7
         }
@@ -38,19 +41,19 @@ android {
 
 dependencies {
     compile fileTree(dir: 'libs', include: ['*.jar'])
-    
+
     // Android Support Libraries
     compile 'com.android.support:appcompat-v7:22.2.1'
     compile 'com.android.support:support-v4:22.2.1'
+
+    // Multidex support for API 21+
+    compile 'com.android.support:multidex:1.0.1'
     
     // WebSocket Client - Upgraded to 1.5.3 for better SSL support
     compile 'org.java-websocket:Java-WebSocket:1.5.3'
 
     // Network Libraries - OkHttp 3.12.x là version cuối hỗ trợ API 21+
     compile 'com.squareup.okhttp3:okhttp:3.12.13'
-
-    // OkHttp WebSocket support
-    compile 'com.squareup.okhttp3:okhttp-ws:3.4.2'
     
     // JSON Processing
     compile 'com.google.code.gson:gson:2.8.5'
