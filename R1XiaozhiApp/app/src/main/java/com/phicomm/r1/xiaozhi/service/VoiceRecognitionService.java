@@ -7,6 +7,7 @@ import android.app.Service;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.AudioFormat;
+import android.support.v4.content.ContextCompat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Binder;
@@ -101,9 +102,10 @@ public class VoiceRecognitionService extends Service {
 
     /**
      * FIX #2: Check RECORD_AUDIO permission before accessing microphone
+     * Use ContextCompat for API 22 compatibility
      */
     private boolean checkRecordAudioPermission() {
-        boolean hasPermission = checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+        boolean hasPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             == PackageManager.PERMISSION_GRANTED;
 
         Log.i(TAG, "RECORD_AUDIO permission: " + hasPermission);

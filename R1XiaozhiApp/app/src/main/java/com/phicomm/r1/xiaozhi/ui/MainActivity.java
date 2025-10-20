@@ -10,6 +10,8 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.content.ContextCompat;
 import android.os.IBinder;
 import android.util.Log;
 import android.view.View;
@@ -327,13 +329,14 @@ public class MainActivity extends Activity {
      */
     private boolean checkRequiredPermissions() {
         // Check RECORD_AUDIO permission (critical for VoiceRecognitionService)
-        boolean hasRecordAudio = checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+        // Use ContextCompat for API 22 compatibility
+        boolean hasRecordAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             == PackageManager.PERMISSION_GRANTED;
 
         // Check storage permissions (for wake word models and audio files)
-        boolean hasWriteStorage = checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        boolean hasWriteStorage = ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
             == PackageManager.PERMISSION_GRANTED;
-        boolean hasReadStorage = checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
+        boolean hasReadStorage = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
             == PackageManager.PERMISSION_GRANTED;
 
         Log.i(TAG, "=== PERMISSION CHECK ===");
@@ -357,7 +360,9 @@ public class MainActivity extends Activity {
             Toast.LENGTH_LONG).show();
 
         // Request RECORD_AUDIO permission first (most critical)
-        requestPermissions(
+        // Use ActivityCompat for API 22 compatibility
+        ActivityCompat.requestPermissions(
+            this,
             new String[]{
                 Manifest.permission.RECORD_AUDIO,
                 Manifest.permission.WRITE_EXTERNAL_STORAGE,
@@ -369,10 +374,10 @@ public class MainActivity extends Activity {
 
     /**
      * FIX #1: Handle permission request result
+     * Note: This method is called by ActivityCompat for API 22 compatibility
      */
-    @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        // No super call needed for API 22 (method doesn't exist in Activity base class)
 
         if (requestCode == REQUEST_RECORD_AUDIO_PERMISSION) {
             boolean allGranted = true;
