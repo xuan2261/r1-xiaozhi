@@ -157,6 +157,22 @@ public class XiaozhiConnectionService extends Service {
         Log.i(TAG, "=== SERVICE STARTED ===");
         retryHandler = new Handler();
 
+        // FIX: Handle SEND_AUDIO action from VoiceRecognitionService
+        if (intent != null && "SEND_AUDIO".equals(intent.getAction())) {
+            byte[] audioData = intent.getByteArrayExtra("audio_data");
+            int sampleRate = intent.getIntExtra("sample_rate", 16000);
+            int channels = intent.getIntExtra("channels", 1);
+
+            if (audioData != null && audioData.length > 0) {
+                Log.i(TAG, "Received audio data: " + audioData.length + " bytes");
+                sendAudioToServer(audioData, sampleRate, channels);
+            } else {
+                Log.w(TAG, "Received SEND_AUDIO action but no audio data");
+            }
+
+            return START_STICKY;
+        }
+
         // FIX #3: Auto-connect if device is activated but not connected
         // This handles boot/restart scenarios
         if (deviceActivator != null && deviceActivator.isActivated()) {
@@ -607,27 +623,90 @@ public class XiaozhiConnectionService extends Service {
             Log.w(TAG, "Cannot send message - not connected");
             return;
         }
-        
+
         try {
             JSONObject message = new JSONObject();
-            
+
             JSONObject header = new JSONObject();
             header.put("name", "Recognize");
             header.put("namespace", "ai.xiaoai.recognizer");
             header.put("message_id", UUID.randomUUID().toString());
-            
+
             JSONObject payload = new JSONObject();
             payload.put("text", text);
-            
+
             message.put("header", header);
             message.put("payload", payload);
-            
+
             String json = message.toString();
             Log.d(TAG, "Sending text: " + json);
             webSocketClient.send(json);
-            
+
         } catch (JSONException e) {
             Log.e(TAG, "Failed to send text: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Gửi audio data đến Xiaozhi server
+     * FIX: Added to handle SEND_AUDIO action from VoiceRecognitionService
+     */
+    private void sendAudioToServer(byte[] audioData, int sampleRate, int channels) {
+        if (webSocketClient == null || !webSocketClient.isOpen()) {
+            Log.w(TAG, "Cannot send audio - not connected");
+
+            // Notify LED service - error state
+            Intent ledIntent = new Intent(this, LEDControlService.class);
+            ledIntent.setAction(LEDControlService.ACTION_SET_ERROR);
+            startService(ledIntent);
+
+            return;
+        }
+
+        try {
+            Log.i(TAG, "=== SENDING AUDIO TO SERVER ===");
+            Log.i(TAG, "Audio size: " + audioData.length + " bytes");
+            Log.i(TAG, "Sample rate: " + sampleRate);
+            Log.i(TAG, "Channels: " + channels);
+
+            // Encode audio to base64
+            String audioBase64 = android.util.Base64.encodeToString(audioData, android.util.Base64.NO_WRAP);
+
+            JSONObject message = new JSONObject();
+
+            JSONObject header = new JSONObject();
+            header.put("name", "Recognize");
+            header.put("namespace", "ai.xiaoai.recognizer");
+            header.put("message_id", UUID.randomUUID().toString());
+
+            JSONObject payload = new JSONObject();
+            payload.put("audio", audioBase64);
+            payload.put("format", "pcm");
+            payload.put("sample_rate", sampleRate);
+            payload.put("channels", channels);
+            payload.put("bits_per_sample", 16);
+
+            message.put("header", header);
+            message.put("payload", payload);
+
+            String json = message.toString();
+            Log.d(TAG, "Sending audio message (base64 length: " + audioBase64.length() + ")");
+            webSocketClient.send(json);
+
+            // Notify LED service - speaking state (waiting for response)
+            Intent ledIntent = new Intent(this, LEDControlService.class);
+            ledIntent.setAction(LEDControlService.ACTION_SET_SPEAKING);
+            startService(ledIntent);
+
+            Log.i(TAG, "=== AUDIO SENT SUCCESSFULLY ===");
+
+        } catch (JSONException e) {
+            Log.e(TAG, "Failed to send audio: " + e.getMessage(), e);
+
+            // Notify LED service - error state
+            Intent ledIntent = new Intent(this, LEDControlService.class);
+            ledIntent.setAction(LEDControlService.ACTION_SET_ERROR);
+            startService(ledIntent);
         }
     }
     

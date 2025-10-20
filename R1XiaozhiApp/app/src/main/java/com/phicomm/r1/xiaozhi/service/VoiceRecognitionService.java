@@ -329,36 +329,49 @@ public class VoiceRecognitionService extends Service {
     
     /**
      * Ghi âm command sau wake word
+     * FIX: Added null check to prevent NullPointerException crash
      */
     private void recordCommandAudio(short[] buffer, int length) {
+        // FIX: Null check - prevent crash if stream already closed
+        if (commandAudioStream == null) {
+            Log.w(TAG, "commandAudioStream is null, skipping recording");
+            return;
+        }
+
         double energy = calculateEnergy(buffer, length);
-        
+
         // Convert short[] to byte[]
         byte[] audioBytes = new byte[length * 2];
         for (int i = 0; i < length; i++) {
             audioBytes[i * 2] = (byte) (buffer[i] & 0xFF);
             audioBytes[i * 2 + 1] = (byte) ((buffer[i] >> 8) & 0xFF);
         }
-        
-        commandAudioStream.write(audioBytes, 0, audioBytes.length);
-        
+
+        try {
+            commandAudioStream.write(audioBytes, 0, audioBytes.length);
+        } catch (Exception e) {
+            Log.e(TAG, "Error writing to commandAudioStream", e);
+            return;
+        }
+
         // Phát hiện kết thúc câu lệnh (silence detection)
         if (energy < ENERGY_THRESHOLD) {
             silenceCounter++;
-            
+
             if (silenceCounter >= SILENCE_FRAMES) {
                 onCommandRecordingCompleted();
+                return; // FIX: Return immediately to prevent double-call
             }
         } else {
             silenceCounter = 0;
-            
+
             if (callback != null) {
                 callback.onVoiceActivityDetected();
             }
         }
-        
-        // Giới hạn độ dài recording (10 giây)
-        if (commandAudioStream.size() > SAMPLE_RATE * 2 * 10) {
+
+        // FIX: Check null again before accessing size (may be null after onCommandRecordingCompleted)
+        if (commandAudioStream != null && commandAudioStream.size() > SAMPLE_RATE * 2 * 10) {
             Log.w(TAG, "Recording too long, force stopping");
             onCommandRecordingCompleted();
         }
@@ -366,19 +379,58 @@ public class VoiceRecognitionService extends Service {
     
     /**
      * Hoàn thành ghi âm command
+     * FIX: Added null check and prevent double-call
      */
     private void onCommandRecordingCompleted() {
+        // FIX: Prevent double-call - check if already completed
+        if (!isRecordingCommand) {
+            Log.w(TAG, "onCommandRecordingCompleted called but not recording, ignoring");
+            return;
+        }
+
+        // FIX: Null check - prevent crash if stream is null
+        if (commandAudioStream == null) {
+            Log.e(TAG, "commandAudioStream is null, cannot complete recording");
+            isRecordingCommand = false;
+            isListeningForWakeWord = true;
+            return;
+        }
+
         Log.d(TAG, "Command recording completed");
-        
+
+        // FIX: Set flags FIRST to prevent re-entry
         isRecordingCommand = false;
         isListeningForWakeWord = true;
-        
-        byte[] audioData = commandAudioStream.toByteArray();
-        
+
+        byte[] audioData = null;
+        try {
+            audioData = commandAudioStream.toByteArray();
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting audio data from stream", e);
+            commandAudioStream = null;
+            return;
+        }
+
+        // FIX: Close and null the stream immediately
+        try {
+            commandAudioStream.close();
+        } catch (Exception e) {
+            Log.e(TAG, "Error closing commandAudioStream", e);
+        }
+        commandAudioStream = null;
+
+        // Validate audio data
+        if (audioData == null || audioData.length == 0) {
+            Log.w(TAG, "No audio data recorded, skipping");
+            return;
+        }
+
+        Log.i(TAG, "Audio data size: " + audioData.length + " bytes");
+
         if (callback != null) {
             callback.onRecordingCompleted(audioData);
         }
-        
+
         // Gửi audio đến XiaozhiConnectionService
         Intent intent = new Intent(this, XiaozhiConnectionService.class);
         intent.setAction("SEND_AUDIO");
@@ -386,13 +438,11 @@ public class VoiceRecognitionService extends Service {
         intent.putExtra("sample_rate", SAMPLE_RATE);
         intent.putExtra("channels", 1);
         startService(intent);
-        
+
         // Reset LED
         Intent ledIntent = new Intent(this, LEDControlService.class);
         ledIntent.setAction(LEDControlService.ACTION_SET_IDLE);
         startService(ledIntent);
-        
-        commandAudioStream = null;
     }
     
     /**

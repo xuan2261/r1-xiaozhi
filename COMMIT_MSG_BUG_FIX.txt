@@ -1,0 +1,76 @@
+fix: reduce LED log spam and add comprehensive bug analysis
+
+ROOT CAUSE ANALYSIS (from device logs):
+
+Issue #1: App Crash - Old APK Running on Device (CRITICAL)
+- Log shows crash at MainActivity.java:458 (copyActivationCode)
+- Current code has copyActivationCode at line 592-613
+- Line numbers DON'T MATCH = Old APK still running on device
+- Old APK doesn't have permission handling fixes
+- Solution: Rebuild and install new APK
+
+Issue #2: LED Control Disabled - No Root Access (HIGH)
+- Log shows 'No root access, LED control disabled'
+- Log spam: 'Cannot set LED color without root' (23 times)
+- Root cause: App doesn't have su permission
+- LED control requires: root + write to /sys/class/leds/multi_leds0/led_color
+- Impact: No visual feedback, but app still works
+
+Issue #3: Wake Word Detection Inaccurate (HIGH)
+- Current implementation: Energy-based (primitive)
+- Only checks audio volume, NOT actual words
+- False positives: Any loud noise triggers
+- False negatives: Soft speech doesn't trigger
+- TODO: Integrate Porcupine or Snowboy ML model
+
+FIXES IMPLEMENTED:
+
+Fix #1: Reduce LED Log Spam
+File: LEDControlService.java
+- Added comprehensive warning in onCreate() (one-time)
+- Removed repeated 'Cannot set LED color' warnings
+- Silently skip LED calls if no root (graceful degradation)
+- App continues to work without LED feedback
+
+Fix #2: Comprehensive Bug Analysis Documentation
+File: BUG_ANALYSIS_REPORT.md (300+ lines)
+- Detailed analysis of all 3 issues from device logs
+- Root cause identification with evidence
+- Impact assessment for each issue
+- Solutions implemented and TODO items
+- Testing plan with expected results
+- Known limitations and future improvements
+
+DOCUMENTATION ADDED:
+- BUG_ANALYSIS_REPORT.md - Complete bug analysis with solutions
+
+FILES MODIFIED:
+- LEDControlService.java - Enhanced LED status logging
+
+IMPACT:
+- LED log spam eliminated (23 warnings to 1 warning)
+- Cleaner logcat output for debugging
+- App continues to work without LED (graceful degradation)
+- Clear documentation of root access requirement
+- Old APK issue: Requires rebuild + reinstall (GitHub Actions)
+- Wake word accuracy: Requires ML model integration (future)
+
+TESTING REQUIREMENTS:
+1. Rebuild APK with latest code (GitHub Actions)
+2. Install new APK on R1 device
+3. Verify no crash when clicking Copy button
+4. Verify LED warning shown once (not spammed)
+5. Test wake word detection (known low accuracy)
+
+KNOWN LIMITATIONS:
+- LED control requires root access (user must grant su permission)
+- Wake word detection is energy-based (low accuracy, false positives)
+- Old APK on device needs replacement
+
+NEXT STEPS:
+1. Monitor GitHub Actions build
+2. Download and install new APK
+3. Test on R1 device
+4. Plan Porcupine/Snowboy integration for wake word
+5. Consider r1-helper IPC for LED control
+
