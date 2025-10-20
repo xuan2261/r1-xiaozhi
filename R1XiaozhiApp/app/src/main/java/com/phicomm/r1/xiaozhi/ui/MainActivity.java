@@ -127,7 +127,20 @@ public class MainActivity extends Activity {
         Log.i(TAG, "MainActivity created");
         Log.i(TAG, "Core state: " + core.getStateSnapshot());
     }
-    
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        Log.i(TAG, "MainActivity onResume() called");
+
+        // FIX: Re-bind to service if not already bound
+        // This handles case where MainActivity is recreated (e.g., after being destroyed by launcher)
+        if (!xiaozhiBound && permissionsGranted) {
+            Log.i(TAG, "Service not bound - re-binding...");
+            bindConnectionService();
+        }
+    }
+
     private void initializeViews() {
         statusText = (TextView) findViewById(R.id.statusText);
         pairingCodeText = (TextView) findViewById(R.id.pairingCodeText);
@@ -685,15 +698,20 @@ public class MainActivity extends Activity {
             }
         }
 
-        // FIX: Do NOT unbind service when MainActivity is destroyed
-        // Service should continue running in background to maintain WebSocket connection
-        // and handle wake word detection
+        // FIX: MUST unbind service to prevent ServiceConnectionLeaked error
+        // Service will continue running because:
+        // 1. stopWithTask="false" in AndroidManifest
+        // 2. START_STICKY in onStartCommand()
+        // 3. Service was started with startService() (not just bound)
         if (xiaozhiBound) {
-            Log.i(TAG, "Service is bound but NOT unbinding - keeping service alive");
-            Log.i(TAG, "Service will continue running in background");
-            // Do NOT call unbindService() - let service stay alive
-            // unbindService(xiaozhiConnection);
-            xiaozhiBound = false; // Mark as unbound for this activity instance
+            Log.i(TAG, "Unbinding service - service will continue running in background");
+            try {
+                unbindService(xiaozhiConnection);
+                xiaozhiBound = false;
+                Log.i(TAG, "Service unbound successfully");
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Error unbinding service: " + e.getMessage());
+            }
         }
 
         super.onDestroy();

@@ -1,0 +1,130 @@
+fix: ServiceConnectionLeaked error - proper service unbinding
+
+ROOT CAUSE ANALYSIS:
+
+Issue: ServiceConnectionLeaked error prevents activation flow
+Evidence from logcat:
+- MainActivity destroyed by launcher
+- unbindService() was commented out
+- Android system detects leaked connection
+- Activation interrupted before completion
+
+Root Cause: Improper Service Lifecycle Management
+
+Problem #1: ServiceConnectionLeaked (CRITICAL)
+- Line 694: unbindService() commented out
+- Previous fix tried to keep service alive by not unbinding
+- WRONG approach: Not unbinding = Memory leak
+- Android detects leaked connection -> Error
+
+Why Previous Fix Was Wrong:
+- Thought: "Don't unbind = service stays alive"
+- Reality: Service stays alive because:
+  1. stopWithTask="false" in AndroidManifest
+  2. START_STICKY in onStartCommand()
+  3. Service started with startService() (not just bound)
+- Binding is for COMMUNICATION (get service instance)
+- Starting is for LIFECYCLE (keep service running)
+- MUST unbind when Activity destroyed (cleanup)
+
+Problem #2: MainActivity Destroyed by Launcher (HIGH)
+- R1 device has custom launcher: com.phicomm.speaker.launcher
+- Launcher has android.intent.category.HOME
+- System prioritizes launcher -> R1 Xiaozhi MainActivity destroyed
+- Activation interrupted before completion
+
+Problem #3: No Re-binding on Activity Recreate (HIGH)
+- Missing onResume() to re-bind service
+- When MainActivity recreated, service not re-bound
+- No UI updates, no activation callbacks
+
+FIXES IMPLEMENTED:
+
+Fix #1: Unbind Service Properly
+File: MainActivity.java (Line 674-706)
+
+Changes:
+- Uncommented unbindService(xiaozhiConnection)
+- Added try-catch for IllegalArgumentException
+- Added detailed logging
+- Updated comments to explain service lifecycle
+
+Before:
+```java
+if (xiaozhiBound) {
+    Log.i(TAG, "Service is bound but NOT unbinding - keeping service alive");
+    // Do NOT call unbindService() - let service stay alive
+    // unbindService(xiaozhiConnection);  // COMMENTED OUT!
+    xiaozhiBound = false;
+}
+```
+
+After:
+```java
+if (xiaozhiBound) {
+    Log.i(TAG, "Unbinding service - service will continue running in background");
+    try {
+        unbindService(xiaozhiConnection);
+        xiaozhiBound = false;
+        Log.i(TAG, "Service unbound successfully");
+    } catch (IllegalArgumentException e) {
+        Log.e(TAG, "Error unbinding service: " + e.getMessage());
+    }
+}
+```
+
+Effect:
+- No more ServiceConnectionLeaked error
+- Proper cleanup when Activity destroyed
+- Service continues running (stopWithTask=false + START_STICKY)
+
+Fix #2: Re-bind Service on Activity Resume
+File: MainActivity.java (Line 127-144)
+
+New Method:
+```java
+@Override
+protected void onResume() {
+    super.onResume();
+    Log.i(TAG, "MainActivity onResume() called");
+    
+    // FIX: Re-bind to service if not already bound
+    if (!xiaozhiBound && permissionsGranted) {
+        Log.i(TAG, "Service not bound - re-binding...");
+        bindConnectionService();
+    }
+}
+```
+
+Effect:
+- Service re-bound when MainActivity recreated
+- UI updates resume
+- Activation callbacks work
+- User sees correct status
+
+DOCUMENTATION ADDED:
+- SERVICE_CONNECTION_LEAKED_FIX.md - Comprehensive analysis
+
+FILES MODIFIED:
+- MainActivity.java (proper unbinding + re-binding on resume)
+
+IMPACT:
+- ServiceConnectionLeaked error fixed
+- Activation flow completes even if MainActivity destroyed
+- Service continues running in background
+- UI updates when MainActivity recreated
+- Proper service lifecycle management
+
+TESTING REQUIREMENTS:
+1. Rebuild APK with fixes
+2. Install on R1 device
+3. Start activation
+4. Verify no ServiceConnectionLeaked error
+5. Verify activation completes successfully
+6. Verify WebSocket connection established
+7. Test launcher interruption scenario
+
+EXPECTED BEHAVIOR:
+Before: MainActivity destroyed -> unbindService() skipped -> ServiceConnectionLeaked error
+After: MainActivity destroyed -> unbindService() called -> Service continues -> Re-bind on resume
+
