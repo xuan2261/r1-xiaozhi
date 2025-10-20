@@ -59,6 +59,17 @@ public class LEDControlService extends Service {
         config = new XiaozhiConfig(this);
         animationHandler = new Handler();
         checkRootAccess();
+
+        if (!hasRootAccess) {
+            Log.w(TAG, "=== LED CONTROL DISABLED ===");
+            Log.w(TAG, "No root access - LED hardware control unavailable");
+            Log.w(TAG, "App will continue without LED feedback");
+            Log.w(TAG, "To enable LED: Grant root access to app");
+            Log.w(TAG, "===========================");
+        } else {
+            Log.i(TAG, "LED Control enabled with root access");
+        }
+
         Log.d(TAG, "LEDControlService created (Root: " + hasRootAccess + ")");
     }
     
@@ -131,9 +142,10 @@ public class LEDControlService extends Service {
         if (!config.isLedEnabled()) {
             return;
         }
-        
+
         if (!hasRootAccess) {
-            Log.w(TAG, "Cannot set LED color without root");
+            // Silently skip LED control if no root
+            // Don't spam logs - already warned in onCreate()
             return;
         }
         
