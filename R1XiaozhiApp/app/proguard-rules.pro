@@ -27,6 +27,7 @@
 
 # OkHttp - Depends on Okio
 -dontwarn okhttp3.**
+-dontwarn okhttp3.internal.platform.**
 -keep class okhttp3.** { *; }
 -keep interface okhttp3.** { *; }
 -keepclassmembers class okhttp3.** { *; }
@@ -54,6 +55,10 @@
 -keep interface org.nanohttpd.** { *; }
 -keepclassmembers class org.nanohttpd.** { *; }
 -dontwarn org.nanohttpd.**
+
+# SLF4J - NanoHTTPD dependency (API only, no implementation needed)
+-dontwarn org.slf4j.**
+-dontwarn org.slf4j.impl.**
 
 # Keep native methods
 -keepclasseswithmembernames class * {
@@ -87,9 +92,18 @@
 -dontwarn java.lang.invoke.**
 -dontwarn javax.naming.**
 
-# SSL/TLS - Required for WebSocket secure connections
--keep class javax.net.ssl.** { *; }
--keep class javax.security.** { *; }
+# JDK internal classes (optional optimizations)
+-dontwarn sun.misc.Unsafe
+-dontwarn sun.security.ssl.**
+
+# Android platform-specific classes (API 24+ only)
+-dontwarn com.android.org.conscrypt.**
+-dontwarn org.conscrypt.**
+-dontwarn android.security.**
+-dontwarn org.apache.harmony.xnet.provider.jsse.**
+-dontwarn dalvik.system.CloseGuard
+
+# SSL/TLS - Framework classes (no need to keep, only suppress warnings)
 -dontwarn javax.net.ssl.**
 -dontwarn javax.security.**
 
