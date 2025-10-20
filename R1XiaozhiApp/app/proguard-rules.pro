@@ -4,6 +4,12 @@
 
 # Keep all classes in our package
 -keep class com.phicomm.r1.xiaozhi.** { *; }
+-keepclassmembers class com.phicomm.r1.xiaozhi.** { *; }
+
+# Android Support Libraries
+-keep class android.support.** { *; }
+-keep interface android.support.** { *; }
+-dontwarn android.support.**
 
 # Java-WebSocket library
 -keep class org.java_websocket.** { *; }
@@ -13,23 +19,41 @@
 }
 -dontwarn org.java_websocket.**
 
-# OkHttp
--dontwarn okhttp3.**
+# Okio - Required by OkHttp (MUST come before OkHttp rules)
 -dontwarn okio.**
+-keep class okio.** { *; }
+-keep interface okio.** { *; }
+-keepclassmembers class okio.** { *; }
+
+# OkHttp - Depends on Okio
+-dontwarn okhttp3.**
 -keep class okhttp3.** { *; }
 -keep interface okhttp3.** { *; }
+-keepclassmembers class okhttp3.** { *; }
 
-# Gson
+# Gson - JSON serialization
 -keep class com.google.gson.** { *; }
+-keep interface com.google.gson.** { *; }
+-keepclassmembers class com.google.gson.** { *; }
 -keepclassmembers class * {
     @com.google.gson.annotations.SerializedName <fields>;
 }
+-keepclassmembers enum * {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+}
+-dontwarn com.google.gson.**
 
-# Timber
+# Timber - Logging
+-keep class com.jakewharton.timber.** { *; }
 -dontwarn org.jetbrains.annotations.**
+-dontwarn com.jakewharton.timber.**
 
 # NanoHTTPD
 -keep class org.nanohttpd.** { *; }
+-keep interface org.nanohttpd.** { *; }
+-keepclassmembers class org.nanohttpd.** { *; }
+-dontwarn org.nanohttpd.**
 
 # Keep native methods
 -keepclasseswithmembernames class * {
@@ -62,3 +86,21 @@
 # Suppress warnings for dynamic references
 -dontwarn java.lang.invoke.**
 -dontwarn javax.naming.**
+
+# SSL/TLS - Required for WebSocket secure connections
+-keep class javax.net.ssl.** { *; }
+-keep class javax.security.** { *; }
+-dontwarn javax.net.ssl.**
+-dontwarn javax.security.**
+
+# Keep all exceptions (for proper error handling)
+-keep public class * extends java.lang.Exception
+-keep public class * extends java.lang.Error
+
+# Keep enums
+-keepclassmembers enum * {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+    **[] $VALUES;
+    public *;
+}
