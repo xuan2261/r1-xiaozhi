@@ -1,9 +1,12 @@
 apply plugin: 'com.android.application'
 
 android {
-    compileSdkVersion 22
-    buildToolsVersion "22.0.1"
-    
+    // Upgraded to 23 for support library v23.4.0 compatibility
+    // Note: compileSdkVersion only affects build-time, not runtime
+    // App still runs on API 22 (minSdkVersion 22)
+    compileSdkVersion 23
+    buildToolsVersion "23.0.3"
+
     defaultConfig {
         applicationId "com.phicomm.r1.xiaozhi"
         minSdkVersion 22
@@ -43,8 +46,10 @@ dependencies {
     compile fileTree(dir: 'libs', include: ['*.jar'])
 
     // Android Support Libraries
-    compile 'com.android.support:appcompat-v7:22.2.1'
-    compile 'com.android.support:support-v4:22.2.1'
+    // Upgraded to 23.4.0 for ContextCompat and ActivityCompat support
+    // v23.4.0 is the last version supporting API 9+ (minSdkVersion 9)
+    compile 'com.android.support:appcompat-v7:23.4.0'
+    compile 'com.android.support:support-v4:23.4.0'
 
     // Multidex support for API 21+
     compile 'com.android.support:multidex:1.0.1'
