@@ -1,0 +1,61 @@
+fix: API 22 compatibility - remove NotificationChannel (API 26+)
+
+BUILD ERROR FIX:
+
+Error: Cannot find symbol NotificationChannel, VERSION_CODES.O
+Root Cause: App targets API 22 but code uses API 26+ features
+
+Compilation Errors:
+1. NotificationChannel - only available from API 26+
+2. Build.VERSION_CODES.O - only available from API 26+
+3. NotificationManager.IMPORTANCE_LOW - only available from API 26+
+4. Notification.Builder(context, channelId) - 2-param constructor only from API 26+
+
+App Configuration:
+- compileSdkVersion: 23
+- targetSdkVersion: 22
+- minSdkVersion: 22
+
+FIX IMPLEMENTED:
+
+File: XiaozhiConnectionService.java (Line 1-120)
+
+Changes:
+1. Removed imports:
+   - android.app.NotificationChannel (API 26+)
+   - android.app.NotificationManager (API 26+)
+   - android.os.Build (not needed)
+
+2. Simplified startForegroundService() method:
+   - Removed NotificationChannel creation (API 26+)
+   - Removed Build.VERSION.SDK_INT checks (not needed for API 22)
+   - Use single-param Notification.Builder(context) - API 11+
+   - Removed PendingIntent.FLAG_IMMUTABLE (API 23+)
+
+Before (API 26+ code):
+- if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+- NotificationChannel channel = new NotificationChannel(...)
+- notification = new Notification.Builder(this, CHANNEL_ID)
+
+After (API 22 compatible):
+- Notification notification = new Notification.Builder(this)
+- .setContentTitle("Xiaozhi Voice Assistant")
+- .setContentText("Listening for wake word...")
+- .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+- .setContentIntent(pendingIntent)
+- .setOngoing(true)
+- .build()
+- startForeground(NOTIFICATION_ID, notification)
+
+IMPACT:
+- Build will succeed on API 22 target
+- Foreground service notification works on Android 5.1+
+- No NotificationChannel (only needed for Android 8.0+)
+- Service still protected from being killed by system
+
+TESTING:
+- GitHub Actions build should succeed
+- APK should install on R1 device (Android 5.1)
+- Foreground notification should appear
+- Service should stay alive when MainActivity destroyed
+

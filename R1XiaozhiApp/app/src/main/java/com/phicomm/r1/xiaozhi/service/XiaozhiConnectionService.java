@@ -1,13 +1,10 @@
 package com.phicomm.r1.xiaozhi.service;
 
 import android.app.Notification;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
 import android.os.Binder;
-import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.util.Log;
@@ -96,53 +93,27 @@ public class XiaozhiConnectionService extends Service {
     /**
      * Start service as foreground to prevent being killed by system
      * FIX: This ensures WebSocket connection stays alive even when MainActivity is destroyed
+     *
+     * NOTE: Simplified for API 22 compatibility - no NotificationChannel needed
      */
     private void startForegroundService() {
-        // Create notification channel for Android O+
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID,
-                "Xiaozhi Voice Assistant",
-                NotificationManager.IMPORTANCE_LOW
-            );
-            channel.setDescription("Keeps Xiaozhi voice assistant running in background");
-            channel.setShowBadge(false);
-
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            if (manager != null) {
-                manager.createNotificationChannel(channel);
-            }
-        }
-
-        // Create notification
+        // Create notification intent
         Intent notificationIntent = new Intent(this, com.phicomm.r1.xiaozhi.ui.MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(
             this,
             0,
             notificationIntent,
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-                ? PendingIntent.FLAG_IMMUTABLE
-                : 0
+            0
         );
 
-        Notification notification;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            notification = new Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("Xiaozhi Voice Assistant")
-                .setContentText("Listening for wake word...")
-                .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-                .setContentIntent(pendingIntent)
-                .setOngoing(true)
-                .build();
-        } else {
-            notification = new Notification.Builder(this)
-                .setContentTitle("Xiaozhi Voice Assistant")
-                .setContentText("Listening for wake word...")
-                .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-                .setContentIntent(pendingIntent)
-                .setOngoing(true)
-                .build();
-        }
+        // Create notification (API 22 compatible)
+        Notification notification = new Notification.Builder(this)
+            .setContentTitle("Xiaozhi Voice Assistant")
+            .setContentText("Listening for wake word...")
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .build();
 
         startForeground(NOTIFICATION_ID, notification);
         Log.i(TAG, "Service started as foreground - will not be killed by system");
