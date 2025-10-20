@@ -9,16 +9,14 @@ import android.content.SharedPreferences;
 public class XiaozhiConfig {
     
     // Constants for XiaozhiConnectionService
-    // ⚠️ TEMPORARY: Using unencrypted WebSocket (ws://) due to expired SSL certificate
-    // Server certificate expired: Nov 08, 2024
-    // Java-WebSocket 1.3.9 doesn't support SSL bypass
-    // TODO: Switch back to wss:// when server certificate is renewed
-    public static final String WEBSOCKET_URL = "ws://xiaozhi.me/v1/ws";
+    // ✅ FIXED: Using secure WebSocket (wss://) with SSL trust manager
+    // Upgraded to Java-WebSocket 1.5.3 which supports SSL customization
+    // SSL certificate validation bypassed for expired certificates
+    public static final String WEBSOCKET_URL = "wss://xiaozhi.me/v1/ws";
     public static final String CLIENT_ID = "1000013";
-    
-    // SSL bypass flag - no longer used (Java-WebSocket 1.3.9 limitation)
-    // Kept for future reference when switching back to wss://
-    public static final boolean BYPASS_SSL_VALIDATION = false;
+
+    // SSL bypass flag - enabled to handle expired certificates
+    public static final boolean BYPASS_SSL_VALIDATION = true;
     
     private static final String PREFS_NAME = "xiaozhi_config";
     private static final String KEY_USE_CLOUD = "use_cloud";
@@ -31,8 +29,8 @@ public class XiaozhiConfig {
     private static final String KEY_HTTP_SERVER_PORT = "http_server_port";
     
     // Default values
-    // ⚠️ Using ws:// temporarily due to expired SSL certificate
-    public static final String DEFAULT_CLOUD_URL = "ws://xiaozhi.me/v1/ws";
+    // ✅ Using wss:// with SSL trust manager
+    public static final String DEFAULT_CLOUD_URL = "wss://xiaozhi.me/v1/ws";
     public static final String DEFAULT_SELF_HOSTED_URL = "ws://192.168.1.100:8080/websocket";
     public static final String DEFAULT_WAKE_WORD = "小智";
     public static final int DEFAULT_HTTP_PORT = 8088;

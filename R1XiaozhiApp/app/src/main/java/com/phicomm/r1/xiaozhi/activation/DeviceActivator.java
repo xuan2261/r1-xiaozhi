@@ -230,11 +230,18 @@ public class DeviceActivator {
         
         // Generate HMAC with server challenge (NOT self-generated!)
         String hmac = fingerprint.generateHmac(challenge);
-        
+
         if (hmac == null) {
             throw new Exception("Failed to generate HMAC");
         }
-        
+
+        // Enhanced logging for activation request
+        Log.d(TAG, "=== ACTIVATION REQUEST ===");
+        Log.d(TAG, "Serial Number: " + serialNumber);
+        Log.d(TAG, "Device ID: " + deviceId);
+        Log.d(TAG, "Challenge: " + challenge);
+        Log.d(TAG, "HMAC (first 30 chars): " + (hmac.length() > 30 ? hmac.substring(0, 30) + "..." : hmac));
+
         // Build request payload
         JSONObject payload = new JSONObject();
         JSONObject innerPayload = new JSONObject();
@@ -243,6 +250,9 @@ public class DeviceActivator {
         innerPayload.put("challenge", challenge);
         innerPayload.put("hmac", hmac);
         payload.put("Payload", innerPayload);
+
+        Log.d(TAG, "Request Payload: " + payload.toString());
+        Log.d(TAG, "==========================");
         
         // Send HTTP request
         URL url = new URL(ACTIVATION_URL);

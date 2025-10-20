@@ -27,6 +27,10 @@ public class DeviceFingerprint {
     private static final String KEY_ACTIVATION_STATUS = "activation_status";
     private static final String KEY_MAC_ADDRESS = "mac_address";
     private static final String KEY_ACCESS_TOKEN = "access_token";
+    private static final String KEY_TOKEN_TIMESTAMP = "token_timestamp";
+
+    // Token expiration: 24 hours (in milliseconds)
+    private static final long TOKEN_EXPIRATION_MS = 24 * 60 * 60 * 1000;
     
     private static DeviceFingerprint instance;
     private final Context context;
@@ -241,7 +245,12 @@ public class DeviceFingerprint {
             Log.e(TAG, "HMAC key not found");
             return null;
         }
-        
+
+        // Enhanced logging for HMAC generation
+        Log.d(TAG, "=== HMAC GENERATION ===");
+        Log.d(TAG, "Challenge: " + challenge);
+        Log.d(TAG, "HMAC Key (first 16 chars): " + (hmacKey.length() > 16 ? hmacKey.substring(0, 16) + "..." : hmacKey));
+
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
             SecretKeySpec secretKey = new SecretKeySpec(
@@ -249,17 +258,21 @@ public class DeviceFingerprint {
                 "HmacSHA256"
             );
             mac.init(secretKey);
-            
+
             byte[] hmacBytes = mac.doFinal(challenge.getBytes());
-            
+
             // Convert to hex
             StringBuilder hexString = new StringBuilder();
             for (byte b : hmacBytes) {
                 hexString.append(String.format("%02x", b));
             }
-            
-            return hexString.toString();
-            
+
+            String hmacResult = hexString.toString();
+            Log.d(TAG, "HMAC Result (first 30 chars): " + (hmacResult.length() > 30 ? hmacResult.substring(0, 30) + "..." : hmacResult));
+            Log.d(TAG, "======================");
+
+            return hmacResult;
+
         } catch (Exception e) {
             Log.e(TAG, "Failed to generate HMAC", e);
             return null;
@@ -287,17 +300,60 @@ public class DeviceFingerprint {
     public String getAccessToken() {
         return prefs.getString(KEY_ACCESS_TOKEN, null);
     }
-    
+
+    /**
+     * Check if access token is expired
+     * @return true if token is expired or doesn't exist
+     */
+    public boolean isTokenExpired() {
+        String token = getAccessToken();
+        if (token == null || token.isEmpty()) {
+            return true;
+        }
+
+        long tokenTimestamp = prefs.getLong(KEY_TOKEN_TIMESTAMP, 0);
+        if (tokenTimestamp == 0) {
+            // No timestamp - assume expired
+            return true;
+        }
+
+        long currentTime = System.currentTimeMillis();
+        long tokenAge = currentTime - tokenTimestamp;
+
+        boolean expired = tokenAge > TOKEN_EXPIRATION_MS;
+
+        if (expired) {
+            Log.w(TAG, "Access token expired (age: " + (tokenAge / 1000 / 60 / 60) + " hours)");
+        }
+
+        return expired;
+    }
+
+    /**
+     * Get access token if valid, null if expired
+     */
+    public String getValidAccessToken() {
+        if (isTokenExpired()) {
+            Log.w(TAG, "Access token is expired");
+            return null;
+        }
+        return getAccessToken();
+    }
+
     // Setters
-    
+
     public void setActivationStatus(boolean activated) {
         prefs.edit().putBoolean(KEY_ACTIVATION_STATUS, activated).apply();
         Log.i(TAG, "Activation status: " + activated);
     }
-    
+
     public void setAccessToken(String token) {
-        prefs.edit().putString(KEY_ACCESS_TOKEN, token).apply();
-        Log.i(TAG, "Access token saved");
+        long currentTime = System.currentTimeMillis();
+        prefs.edit()
+            .putString(KEY_ACCESS_TOKEN, token)
+            .putLong(KEY_TOKEN_TIMESTAMP, currentTime)
+            .apply();
+        Log.i(TAG, "Access token saved with timestamp: " + currentTime);
     }
     
     /**

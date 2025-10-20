@@ -17,6 +17,7 @@ import com.phicomm.r1.xiaozhi.core.XiaozhiCore;
 import com.phicomm.r1.xiaozhi.events.ConnectionEvent;
 import com.phicomm.r1.xiaozhi.events.MessageReceivedEvent;
 import com.phicomm.r1.xiaozhi.util.ErrorCodes;
+import com.phicomm.r1.xiaozhi.util.TrustAllCertificates;
 
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
@@ -24,12 +25,15 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.net.Socket;
 import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 
@@ -171,16 +175,26 @@ public class XiaozhiConnectionService extends Service {
             return;
         }
         
-        // Get access token
-        String accessToken = deviceActivator.getAccessToken();
+        // Get access token and check expiration
+        String accessToken = deviceFingerprint.getValidAccessToken();
         if (accessToken == null) {
-            Log.e(TAG, "No access token available");
-            if (connectionListener != null) {
-                connectionListener.onError("No access token - please activate device");
+            // Token expired or not found
+            if (deviceFingerprint.isTokenExpired()) {
+                Log.w(TAG, "Access token expired - need re-activation");
+                if (connectionListener != null) {
+                    connectionListener.onError("Token expired - please re-activate device");
+                }
+                // Auto start re-activation
+                deviceActivator.startActivation();
+            } else {
+                Log.e(TAG, "No access token available");
+                if (connectionListener != null) {
+                    connectionListener.onError("No access token - please activate device");
+                }
             }
             return;
         }
-        
+
         // Connect with token
         connectWithToken(accessToken);
     }
@@ -226,9 +240,15 @@ public class XiaozhiConnectionService extends Service {
                     if (connectionListener != null) {
                         connectionListener.onConnected();
                     }
-                    
+
                     // Send hello message (py-xiaozhi method)
                     sendHelloMessage();
+                }
+
+                @Override
+                public void onSetSSLParameters(SSLParameters sslParameters) {
+                    // Called before SSL handshake - customize SSL parameters if needed
+                    Log.d(TAG, "SSL parameters set");
                 }
                 
                 @Override
@@ -262,24 +282,45 @@ public class XiaozhiConnectionService extends Service {
                 
                 @Override
                 public void onError(Exception ex) {
-                    // Enhanced error logging
-                    Log.e(TAG, "=== WEBSOCKET ERROR ===");
+                    // Enhanced error logging with full details
+                    Log.e(TAG, "=== WEBSOCKET ERROR DETAIL ===");
                     Log.e(TAG, "Error class: " + ex.getClass().getName());
                     Log.e(TAG, "Error message: " + ex.getMessage());
-                    Log.e(TAG, "Stack trace:");
-                    ex.printStackTrace();
-                    Log.e(TAG, "======================");
-                    
+
+                    // Log cause if available
+                    Throwable cause = ex.getCause();
+                    if (cause != null) {
+                        Log.e(TAG, "Cause class: " + cause.getClass().getName());
+                        Log.e(TAG, "Cause message: " + cause.getMessage());
+                    }
+
+                    // Print full stack trace to string
+                    StringWriter sw = new StringWriter();
+                    PrintWriter pw = new PrintWriter(sw);
+                    ex.printStackTrace(pw);
+                    Log.e(TAG, "Full stack trace:\n" + sw.toString());
+                    Log.e(TAG, "==============================");
+
                     String errorMsg = ErrorCodes.getMessage(ErrorCodes.WEBSOCKET_ERROR);
                     if (connectionListener != null) {
                         connectionListener.onError(errorMsg + ": " + ex.getMessage());
                     }
-                    
+
                     // Retry on error
                     scheduleReconnect(ErrorCodes.WEBSOCKET_ERROR);
                 }
             };
-            
+
+            // Apply SSL trust manager if bypass is enabled
+            if (XiaozhiConfig.BYPASS_SSL_VALIDATION) {
+                try {
+                    Log.i(TAG, "Applying SSL trust manager (bypass validation)");
+                    webSocketClient.setSocketFactory(TrustAllCertificates.getSSLSocketFactory());
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to set SSL socket factory", e);
+                }
+            }
+
             webSocketClient.connect();
             
         } catch (Exception e) {
@@ -312,31 +353,49 @@ public class XiaozhiConnectionService extends Service {
         try {
             String deviceId = deviceFingerprint.getMacAddress();
             String serialNumber = deviceFingerprint.getSerialNumber();
-            
+
+            // Validate device identity
+            if (deviceId == null || deviceId.isEmpty()) {
+                Log.e(TAG, "Cannot send hello - device ID is null");
+                if (connectionListener != null) {
+                    connectionListener.onError("Device ID not found");
+                }
+                return;
+            }
+
+            if (serialNumber == null || serialNumber.isEmpty()) {
+                Log.e(TAG, "Cannot send hello - serial number is null");
+                if (connectionListener != null) {
+                    connectionListener.onError("Serial number not found");
+                }
+                return;
+            }
+
             JSONObject message = new JSONObject();
-            
+
             // Header
             JSONObject header = new JSONObject();
             header.put("name", "hello");
             header.put("namespace", "ai.xiaoai.common");
             header.put("message_id", UUID.randomUUID().toString());
-            
-            // Payload
+
+            // Payload - Match EXACTLY with py-xiaozhi format
             JSONObject payload = new JSONObject();
-            payload.put("device_id", deviceId);
-            payload.put("serial_number", serialNumber);
+            payload.put("device_id", deviceId);  // MAC with colons: aa:bb:cc:dd:ee:ff
+            payload.put("serial_number", serialNumber);  // SN-HASH-MAC format
             payload.put("device_type", "android");
             payload.put("os_version", android.os.Build.VERSION.RELEASE);
             payload.put("app_version", "1.0.0");
-            
+
             message.put("header", header);
             message.put("payload", payload);
-            
+
             String json = message.toString();
             Log.i(TAG, "=== HELLO MESSAGE (py-xiaozhi) ===");
             Log.i(TAG, "Device ID: " + deviceId);
             Log.i(TAG, "Serial Number: " + serialNumber);
-            Log.i(TAG, "JSON: " + json);
+            Log.i(TAG, "OS Version: " + android.os.Build.VERSION.RELEASE);
+            Log.i(TAG, "Full JSON: " + json);
             Log.i(TAG, "==================================");
             webSocketClient.send(json);
             
