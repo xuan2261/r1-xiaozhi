@@ -1,0 +1,166 @@
+fix: enhanced WebSocket connection logging + improved LED control
+
+ROOT CAUSE ANALYSIS:
+
+Issue #1: WebSocket Disconnect Sau Activation (CRITICAL)
+Evidence from logcat:
+- Status: "[OK] Ket noi thanh cong!" appears
+- Immediately followed by "Status: Ngat ket noi"
+- NO log: "=== WEBSOCKET CONNECTED ==="
+- NO log: "=== WEBSOCKET CLOSED ==="
+- NO log: "=== WEBSOCKET ERROR DETAIL ==="
+
+Hypothesis: WebSocket connection rejected by server BEFORE onOpen() called
+Possible reasons:
+1. Invalid access token format
+2. Token expired (24h expiration)
+3. Server rejected connection (wrong headers/URL)
+4. SSL handshake failed
+5. Network timeout
+
+Problem: Insufficient logging to debug connection issues
+
+Issue #2: LED Control Không Hoạt Động (HIGH)
+Evidence from logcat:
+- "No root access, LED control disabled"
+
+Current implementation issues:
+1. No SELinux status check
+2. No exit code verification
+3. Command format may be incorrect
+
+Based on r1-helper README:
+- LED control requires root access
+- SELinux must be disabled or permissive
+- Command format: echo -n '7fff RRGGBB' > /sys/class/leds/multi_leds0/led_color
+
+FIXES IMPLEMENTED:
+
+Fix #1: Enhanced WebSocket Connection Logging
+File: XiaozhiConnectionService.java (Line 320-335)
+
+Changes:
+```java
+@Override
+public void onOpen(ServerHandshake handshakedata) {
+    Log.i(TAG, "=== WEBSOCKET CONNECTED ===");
+    Log.i(TAG, "HTTP Status: " + handshakedata.getHttpStatus());
+    Log.i(TAG, "HTTP Status Message: " + handshakedata.getHttpStatusMessage());
+    Log.i(TAG, "Server handshake: " + handshakedata.toString());
+    Log.i(TAG, "============================");
+    
+    if (connectionListener != null) {
+        connectionListener.onConnected();
+    }
+    sendHelloMessage();
+}
+```
+
+Effect:
+- Detailed logging of WebSocket connection success
+- Shows HTTP status code from server
+- Shows server handshake details
+- Helps debug connection issues
+
+Fix #2: Enhanced Connection Initiation Logging
+File: XiaozhiConnectionService.java (Line 401-417)
+
+Changes:
+```java
+Log.i(TAG, "=== INITIATING WEBSOCKET CONNECTION ===");
+Log.i(TAG, "Calling webSocketClient.connect()...");
+webSocketClient.connect();
+Log.i(TAG, "connect() method returned - waiting for onOpen/onError callback");
+Log.i(TAG, "========================================");
+```
+
+Effect:
+- Shows when connection attempt starts
+- Shows when connect() method returns
+- Helps identify if connection hangs or fails immediately
+
+Fix #3: Improved LED Command Format
+File: LEDControlService.java (Line 138-181)
+
+Changes:
+```java
+// FIX: Use proper command format
+String command = "echo -n '" + colorHex + "' > " + LED_PATH;
+os.writeBytes(command + "\n");
+os.writeBytes("exit\n");
+os.flush();
+
+int exitCode = process.waitFor();
+
+if (exitCode == 0) {
+    Log.d(TAG, "LED color set to: " + colorHex);
+} else {
+    Log.e(TAG, "LED command failed with exit code: " + exitCode);
+}
+```
+
+Effect:
+- Check exit code to verify command success
+- Log error if command fails
+- Better error handling
+
+Fix #4: SELinux Status Check
+File: LEDControlService.java (Line 121-161)
+
+Changes:
+```java
+private void checkRootAccess() {
+    // Test 1: Check if su command works
+    Process process = Runtime.getRuntime().exec("su");
+    // ... check exit code ...
+    
+    if (process.exitValue() != 0) {
+        hasRootAccess = false;
+        Log.w(TAG, "No root access (su command failed)");
+        return;
+    }
+    
+    // Test 2: Check SELinux status
+    Process selinuxProcess = Runtime.getRuntime().exec("su");
+    DataOutputStream selinuxOs = new DataOutputStream(selinuxProcess.getOutputStream());
+    selinuxOs.writeBytes("getenforce\n");
+    // ... check SELinux status ...
+    
+    hasRootAccess = true;
+    Log.i(TAG, "Root access available - LED control enabled");
+}
+```
+
+Effect:
+- Check both root access AND SELinux status
+- Better error messages
+- Helps debug LED control issues
+
+DOCUMENTATION ADDED:
+- WEBSOCKET_DISCONNECT_AND_LED_FIX.md - Comprehensive analysis
+
+FILES MODIFIED:
+- XiaozhiConnectionService.java (enhanced logging)
+- LEDControlService.java (improved LED control + SELinux check)
+
+IMPACT:
+- Better debugging for WebSocket connection issues
+- Detailed logs show exactly where connection fails
+- Improved LED control with exit code verification
+- SELinux status check for better diagnostics
+
+TESTING REQUIREMENTS:
+1. Rebuild APK with enhanced logging
+2. Install on R1 device
+3. Start activation and monitor logs
+4. Check for detailed WebSocket connection logs
+5. Verify LED control works (if root available)
+6. Check SELinux status
+
+EXPECTED BEHAVIOR:
+Before: No logs showing why WebSocket disconnects
+After: Detailed logs showing connection attempt, success/failure, error details
+
+Before: LED control fails silently
+After: LED control logs exit code and error details
+

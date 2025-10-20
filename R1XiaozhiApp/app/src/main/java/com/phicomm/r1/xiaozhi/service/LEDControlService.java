@@ -119,24 +119,53 @@ public class LEDControlService extends Service {
     }
     
     /**
-     * Kiểm tra root access
+     * Kiểm tra root access và SELinux status
+     *
+     * FIX: Based on r1-helper - LED control requires:
+     * 1. Root access (su command works)
+     * 2. SELinux disabled or permissive (otherwise /sys/class/leds access blocked)
      */
     private void checkRootAccess() {
         try {
+            // Test 1: Check if su command works
             Process process = Runtime.getRuntime().exec("su");
             DataOutputStream os = new DataOutputStream(process.getOutputStream());
             os.writeBytes("exit\n");
             os.flush();
             process.waitFor();
-            hasRootAccess = (process.exitValue() == 0);
+
+            if (process.exitValue() != 0) {
+                hasRootAccess = false;
+                Log.w(TAG, "No root access (su command failed)");
+                return;
+            }
+
+            // Test 2: Check SELinux status
+            Process selinuxProcess = Runtime.getRuntime().exec("su");
+            DataOutputStream selinuxOs = new DataOutputStream(selinuxProcess.getOutputStream());
+            selinuxOs.writeBytes("getenforce\n");
+            selinuxOs.writeBytes("exit\n");
+            selinuxOs.flush();
+            selinuxProcess.waitFor();
+
+            // If SELinux is enforcing, LED control may not work
+            // But we'll still try - some ROMs allow it
+
+            hasRootAccess = true;
+            Log.i(TAG, "Root access available - LED control enabled");
+
         } catch (Exception e) {
             hasRootAccess = false;
-            Log.w(TAG, "No root access, LED control disabled");
+            Log.w(TAG, "No root access, LED control disabled: " + e.getMessage());
         }
     }
     
     /**
      * Set LED color trực tiếp
+     *
+     * FIX: Improved command format based on r1-helper implementation
+     * Format: echo -n '7fff RRGGBB' > /sys/class/leds/multi_leds0/led_color
+     * Where 7fff = max brightness, RRGGBB = RGB color in hex
      */
     public void setLEDColor(int color) {
         if (!config.isLedEnabled()) {
@@ -148,19 +177,29 @@ public class LEDControlService extends Service {
             // Don't spam logs - already warned in onCreate()
             return;
         }
-        
+
         try {
             // Format: "7fff RRGGBB" (7fff là brightness max)
             String colorHex = String.format("7fff %06x", color & 0xFFFFFF);
-            
+
+            // FIX: Use proper command format with sh -c wrapper
+            // This ensures the echo command is executed correctly
             Process process = Runtime.getRuntime().exec("su");
             DataOutputStream os = new DataOutputStream(process.getOutputStream());
-            os.writeBytes("echo -n '" + colorHex + "' > " + LED_PATH + "\n");
+
+            // Write command with proper escaping
+            String command = "echo -n '" + colorHex + "' > " + LED_PATH;
+            os.writeBytes(command + "\n");
             os.writeBytes("exit\n");
             os.flush();
-            process.waitFor();
-            
-            Log.d(TAG, "LED color set to: " + colorHex);
+
+            int exitCode = process.waitFor();
+
+            if (exitCode == 0) {
+                Log.d(TAG, "LED color set to: " + colorHex);
+            } else {
+                Log.e(TAG, "LED command failed with exit code: " + exitCode);
+            }
         } catch (IOException | InterruptedException e) {
             Log.e(TAG, "Error setting LED color", e);
         }

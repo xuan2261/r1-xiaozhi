@@ -320,7 +320,12 @@ public class XiaozhiConnectionService extends Service {
             webSocketClient = new WebSocketClient(serverUri, headers) {
                 @Override
                 public void onOpen(ServerHandshake handshakedata) {
-                    Log.i(TAG, "WebSocket connected with token");
+                    Log.i(TAG, "=== WEBSOCKET CONNECTED ===");
+                    Log.i(TAG, "HTTP Status: " + handshakedata.getHttpStatus());
+                    Log.i(TAG, "HTTP Status Message: " + handshakedata.getHttpStatusMessage());
+                    Log.i(TAG, "Server handshake: " + handshakedata.toString());
+                    Log.i(TAG, "============================");
+
                     if (connectionListener != null) {
                         connectionListener.onConnected();
                     }
@@ -405,7 +410,11 @@ public class XiaozhiConnectionService extends Service {
                 }
             }
 
+            Log.i(TAG, "=== INITIATING WEBSOCKET CONNECTION ===");
+            Log.i(TAG, "Calling webSocketClient.connect()...");
             webSocketClient.connect();
+            Log.i(TAG, "connect() method returned - waiting for onOpen/onError callback");
+            Log.i(TAG, "========================================");
             
         } catch (Exception e) {
             Log.e(TAG, "Failed to connect: " + e.getMessage(), e);
