@@ -39,30 +39,36 @@
             android:parentActivityName=".ui.MainActivity" />
 
         <!-- Services -->
+        <!-- FIX: Added stopWithTask=false to prevent service from being killed when MainActivity is destroyed -->
         <service
             android:name=".service.VoiceRecognitionService"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false"
+            android:stopWithTask="false" />
 
         <service
             android:name=".service.XiaozhiConnectionService"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false"
+            android:stopWithTask="false" />
 
         <service
             android:name=".service.AudioPlaybackService"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false"
+            android:stopWithTask="false" />
 
         <service
             android:name=".service.LEDControlService"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false"
+            android:stopWithTask="false" />
 
         <service
             android:name=".service.HTTPServerService"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false"
+            android:stopWithTask="false" />
 
         <!-- Boot Receiver -->
         <receiver

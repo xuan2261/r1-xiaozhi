@@ -1,8 +1,13 @@
 package com.phicomm.r1.xiaozhi.service;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.util.Log;
@@ -48,10 +53,12 @@ import javax.net.ssl.SSLSocketFactory;
  * Refactored để sử dụng XiaozhiCore và EventBus
  */
 public class XiaozhiConnectionService extends Service {
-    
+
     private static final String TAG = "XiaozhiConnection";
     private static final int MAX_RETRIES = 3;
-    
+    private static final int NOTIFICATION_ID = 1001;
+    private static final String CHANNEL_ID = "xiaozhi_service_channel";
+
     private WebSocketClient webSocketClient;
     private final IBinder binder = new LocalBinder();
     private ConnectionListener connectionListener;
@@ -85,19 +92,77 @@ public class XiaozhiConnectionService extends Service {
         void onMessage(String message);
         void onError(String error);
     }
-    
+
+    /**
+     * Start service as foreground to prevent being killed by system
+     * FIX: This ensures WebSocket connection stays alive even when MainActivity is destroyed
+     */
+    private void startForegroundService() {
+        // Create notification channel for Android O+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                CHANNEL_ID,
+                "Xiaozhi Voice Assistant",
+                NotificationManager.IMPORTANCE_LOW
+            );
+            channel.setDescription("Keeps Xiaozhi voice assistant running in background");
+            channel.setShowBadge(false);
+
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(channel);
+            }
+        }
+
+        // Create notification
+        Intent notificationIntent = new Intent(this, com.phicomm.r1.xiaozhi.ui.MainActivity.class);
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            notificationIntent,
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                ? PendingIntent.FLAG_IMMUTABLE
+                : 0
+        );
+
+        Notification notification;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            notification = new Notification.Builder(this, CHANNEL_ID)
+                .setContentTitle("Xiaozhi Voice Assistant")
+                .setContentText("Listening for wake word...")
+                .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+                .setContentIntent(pendingIntent)
+                .setOngoing(true)
+                .build();
+        } else {
+            notification = new Notification.Builder(this)
+                .setContentTitle("Xiaozhi Voice Assistant")
+                .setContentText("Listening for wake word...")
+                .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+                .setContentIntent(pendingIntent)
+                .setOngoing(true)
+                .build();
+        }
+
+        startForeground(NOTIFICATION_ID, notification);
+        Log.i(TAG, "Service started as foreground - will not be killed by system");
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
-        
+
+        // FIX: Start as foreground service to prevent being killed
+        startForegroundService();
+
         // Get XiaozhiCore instance
         core = XiaozhiCore.getInstance();
         eventBus = core.getEventBus();
-        
+
         // Initialize device activation
         deviceFingerprint = DeviceFingerprint.getInstance(this);
         deviceActivator = new DeviceActivator(this);
-        
+
         // Setup activation listener
         deviceActivator.setListener(new DeviceActivator.ActivationListener() {
             @Override
@@ -107,7 +172,7 @@ public class XiaozhiConnectionService extends Service {
                     connectionListener.onActivationRequired(verificationCode);
                 }
             }
-            
+
             @Override
             public void onActivationProgress(int attempt, int maxAttempts) {
                 Log.d(TAG, "Activation progress: " + attempt + "/" + maxAttempts);
@@ -115,7 +180,7 @@ public class XiaozhiConnectionService extends Service {
                     connectionListener.onActivationProgress(attempt, maxAttempts);
                 }
             }
-            
+
             @Override
             public void onActivationSuccess(String accessToken) {
                 Log.i(TAG, "=== ACTIVATION SUCCESS ===");
@@ -131,7 +196,7 @@ public class XiaozhiConnectionService extends Service {
 
                 Log.i(TAG, "==========================");
             }
-            
+
             @Override
             public void onActivationFailed(String error) {
                 Log.e(TAG, "Activation failed: " + error);
@@ -140,10 +205,10 @@ public class XiaozhiConnectionService extends Service {
                 }
             }
         });
-        
+
         // Register this service với core
         core.setConnectionService(this);
-        
+
         Log.i(TAG, "Service created and registered with XiaozhiCore");
     }
     
@@ -810,14 +875,26 @@ public class XiaozhiConnectionService extends Service {
     
     @Override
     public void onDestroy() {
-        cancelRetries();
-        disconnect();
-        
+        Log.w(TAG, "=== SERVICE ONDESTROY CALLED ===");
+        Log.w(TAG, "This should NOT happen if service is properly configured!");
+        Log.w(TAG, "Check AndroidManifest.xml - stopWithTask should be false");
+
+        // FIX: Do NOT disconnect if we have an active connection
+        // Service should stay alive even when MainActivity is destroyed
+        if (isConnected()) {
+            Log.w(TAG, "WebSocket is connected - keeping connection alive");
+            Log.w(TAG, "Service will be restarted by system (START_STICKY)");
+            // Do NOT call disconnect() - let the connection stay alive
+        } else {
+            Log.i(TAG, "No active connection - safe to cleanup");
+            cancelRetries();
+        }
+
         // Unregister from core
         if (core != null) {
             core.setConnectionService(null);
         }
-        
+
         super.onDestroy();
         Log.i(TAG, "Service destroyed");
     }

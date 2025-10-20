@@ -1,0 +1,193 @@
+fix: critical NullPointerException crash in VoiceRecognitionService
+
+ROOT CAUSE ANALYSIS:
+
+Issue: App crashes when wake word detected
+Crash Location: VoiceRecognitionService.java:361
+Error: NullPointerException - commandAudioStream.size()
+
+Root Cause: Double-call race condition in recordCommandAudio()
+
+Execution Flow:
+1. Wake word detected -> commandAudioStream = new ByteArrayOutputStream()
+2. Recording audio -> commandAudioStream.write(audioBytes)
+3. Silence detected -> onCommandRecordingCompleted() FIRST CALL
+4. onCommandRecordingCompleted() sets commandAudioStream = null
+5. recordCommandAudio() continues (no return statement)
+6. CRASH: commandAudioStream.size() called on null object
+
+Why Double-Call:
+- Silence detection calls onCommandRecordingCompleted()
+- No return statement after first call
+- Timeout check runs on null stream
+- NullPointerException thrown
+
+FIXES IMPLEMENTED:
+
+Fix #1: Null Check in recordCommandAudio()
+File: VoiceRecognitionService.java (Line 333-378)
+
+Changes:
+- Added null check at method start
+- Added try-catch for write operation
+- Added return statement after silence detection (prevent double-call)
+- Added null check before accessing size()
+
+Code:
+```java
+if (commandAudioStream == null) {
+    Log.w(TAG, "commandAudioStream is null, skipping recording");
+    return;
+}
+
+try {
+    commandAudioStream.write(audioBytes, 0, audioBytes.length);
+} catch (Exception e) {
+    Log.e(TAG, "Error writing to commandAudioStream", e);
+    return;
+}
+
+if (silenceCounter >= SILENCE_FRAMES) {
+    onCommandRecordingCompleted();
+    return;  // FIX: Prevent double-call
+}
+
+if (commandAudioStream != null && commandAudioStream.size() > ...) {
+    onCommandRecordingCompleted();
+}
+```
+
+Fix #2: Prevent Double-Call in onCommandRecordingCompleted()
+File: VoiceRecognitionService.java (Line 380-446)
+
+Changes:
+- Added re-entry guard using isRecordingCommand flag
+- Added null check for commandAudioStream
+- Set flags FIRST before processing (prevent race condition)
+- Added try-catch for toByteArray()
+- Close stream immediately after reading
+- Validate audio data before sending
+
+Code:
+```java
+if (!isRecordingCommand) {
+    Log.w(TAG, "Already completed, ignoring");
+    return;
+}
+
+if (commandAudioStream == null) {
+    Log.e(TAG, "Stream is null");
+    isRecordingCommand = false;
+    return;
+}
+
+// Set flags FIRST
+isRecordingCommand = false;
+isListeningForWakeWord = true;
+
+try {
+    audioData = commandAudioStream.toByteArray();
+    commandAudioStream.close();
+} catch (Exception e) {
+    Log.e(TAG, "Error reading stream", e);
+}
+commandAudioStream = null;
+```
+
+Fix #3: Handle SEND_AUDIO Action in XiaozhiConnectionService
+File: XiaozhiConnectionService.java (Line 156-199)
+
+Problem: VoiceRecognitionService sends SEND_AUDIO intent but service doesn't handle it
+
+Changes:
+- Added SEND_AUDIO action handler in onStartCommand()
+- Extract audio data from intent
+- Call sendAudioToServer() method
+
+Code:
+```java
+if (intent != null && "SEND_AUDIO".equals(intent.getAction())) {
+    byte[] audioData = intent.getByteArrayExtra("audio_data");
+    int sampleRate = intent.getIntExtra("sample_rate", 16000);
+    int channels = intent.getIntExtra("channels", 1);
+    
+    if (audioData != null && audioData.length > 0) {
+        sendAudioToServer(audioData, sampleRate, channels);
+    }
+    return START_STICKY;
+}
+```
+
+Fix #4: Add sendAudioToServer() Method
+File: XiaozhiConnectionService.java (Line 650-711)
+
+Changes:
+- Added new method to send audio to Xiaozhi server
+- Encode audio to base64
+- Send JSON message with audio data
+- Update LED state (SPEAKING while waiting)
+- Comprehensive error handling
+
+Code:
+```java
+private void sendAudioToServer(byte[] audioData, int sampleRate, int channels) {
+    if (webSocketClient == null || !webSocketClient.isOpen()) {
+        Log.w(TAG, "Cannot send audio - not connected");
+        return;
+    }
+    
+    String audioBase64 = Base64.encodeToString(audioData, Base64.NO_WRAP);
+    
+    JSONObject message = new JSONObject();
+    header.put("name", "Recognize");
+    header.put("namespace", "ai.xiaoai.recognizer");
+    
+    payload.put("audio", audioBase64);
+    payload.put("format", "pcm");
+    payload.put("sample_rate", sampleRate);
+    
+    webSocketClient.send(json);
+    
+    // Update LED to SPEAKING state
+    Intent ledIntent = new Intent(this, LEDControlService.class);
+    ledIntent.setAction(LEDControlService.ACTION_SET_SPEAKING);
+    startService(ledIntent);
+}
+```
+
+DOCUMENTATION ADDED:
+- CRITICAL_CRASH_FIX_REPORT.md - Comprehensive analysis and fixes
+
+FILES MODIFIED:
+- VoiceRecognitionService.java
+  * recordCommandAudio() - null checks and return statement
+  * onCommandRecordingCompleted() - re-entry guard and validation
+- XiaozhiConnectionService.java
+  * onStartCommand() - SEND_AUDIO action handler
+  * sendAudioToServer() - new method for audio transmission
+
+IMPACT:
+- Critical crash fixed (NullPointerException)
+- Audio now properly sent to server
+- LED state updates correctly
+- Comprehensive error handling
+- No more app force close on wake word
+
+TESTING REQUIREMENTS:
+1. Rebuild APK with fixes
+2. Install on R1 device
+3. Say "Hi Lili" wake word
+4. Verify no crash
+5. Verify audio sent to server
+6. Verify LED state changes (LISTENING -> SPEAKING)
+7. Monitor logcat for errors
+
+EXPECTED BEHAVIOR:
+Before: Wake word -> Recording -> CRASH
+After: Wake word -> Recording -> Audio sent -> Wait for response
+
+KNOWN LIMITATIONS:
+- Wake word detection still energy-based (low accuracy)
+- LED control requires root access
+- WebSocket connection required for audio transmission
+

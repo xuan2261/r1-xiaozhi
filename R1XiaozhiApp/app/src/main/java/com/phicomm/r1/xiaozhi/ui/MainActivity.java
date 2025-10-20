@@ -673,6 +673,8 @@ public class MainActivity extends Activity {
     
     @Override
     protected void onDestroy() {
+        Log.i(TAG, "MainActivity onDestroy() called");
+
         // Unregister event listeners
         if (eventBus != null) {
             if (stateListener != null) {
@@ -682,13 +684,18 @@ public class MainActivity extends Activity {
                 eventBus.unregister(ConnectionEvent.class, connectionListener);
             }
         }
-        
-        // Unbind service
+
+        // FIX: Do NOT unbind service when MainActivity is destroyed
+        // Service should continue running in background to maintain WebSocket connection
+        // and handle wake word detection
         if (xiaozhiBound) {
-            unbindService(xiaozhiConnection);
-            xiaozhiBound = false;
+            Log.i(TAG, "Service is bound but NOT unbinding - keeping service alive");
+            Log.i(TAG, "Service will continue running in background");
+            // Do NOT call unbindService() - let service stay alive
+            // unbindService(xiaozhiConnection);
+            xiaozhiBound = false; // Mark as unbound for this activity instance
         }
-        
+
         super.onDestroy();
         Log.i(TAG, "MainActivity destroyed");
     }
