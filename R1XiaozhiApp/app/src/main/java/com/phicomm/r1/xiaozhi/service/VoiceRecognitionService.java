@@ -1,9 +1,11 @@
 package com.phicomm.r1.xiaozhi.service;
 
+import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
@@ -20,6 +22,8 @@ import java.util.Arrays;
 /**
  * Service thu âm và phát hiện wake word liên tục
  * Khi phát hiện wake word, bắt đầu ghi âm đầy đủ và gửi đến Xiaozhi
+ *
+ * FIX: Added permission checks to prevent SecurityException crash
  */
 public class VoiceRecognitionService extends Service {
     
@@ -78,9 +82,32 @@ public class VoiceRecognitionService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, createNotification());
-        
-        startRecording();
+
+        // FIX #2: Check permission before starting recording
+        if (checkRecordAudioPermission()) {
+            startRecording();
+        } else {
+            Log.e(TAG, "=== RECORD_AUDIO PERMISSION DENIED ===");
+            Log.e(TAG, "Cannot start recording without permission!");
+            Log.e(TAG, "Service will run but recording is disabled.");
+
+            if (callback != null) {
+                callback.onError("Khong co quyen ghi am");
+            }
+        }
+
         return START_STICKY;
+    }
+
+    /**
+     * FIX #2: Check RECORD_AUDIO permission before accessing microphone
+     */
+    private boolean checkRecordAudioPermission() {
+        boolean hasPermission = checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+            == PackageManager.PERMISSION_GRANTED;
+
+        Log.i(TAG, "RECORD_AUDIO permission: " + hasPermission);
+        return hasPermission;
     }
     
     @Override
@@ -117,19 +144,33 @@ public class VoiceRecognitionService extends Service {
     
     /**
      * Bắt đầu thu âm liên tục
+     * FIX #2: Enhanced error handling and permission checks
      */
     private void startRecording() {
         if (isRecording) {
             Log.w(TAG, "Already recording");
             return;
         }
-        
+
+        // FIX #2: Double-check permission before creating AudioRecord
+        if (!checkRecordAudioPermission()) {
+            Log.e(TAG, "Cannot start recording: No RECORD_AUDIO permission");
+            if (callback != null) {
+                callback.onError("Khong co quyen ghi am");
+            }
+            return;
+        }
+
         int bufferSize = AudioRecord.getMinBufferSize(
             SAMPLE_RATE,
             CHANNEL_CONFIG,
             AUDIO_FORMAT
         ) * BUFFER_SIZE_FACTOR;
-        
+
+        Log.i(TAG, "=== STARTING AUDIO RECORDING ===");
+        Log.i(TAG, "Sample rate: " + SAMPLE_RATE);
+        Log.i(TAG, "Buffer size: " + bufferSize);
+
         try {
             audioRecord = new AudioRecord(
                 MediaRecorder.AudioSource.MIC,
@@ -138,24 +179,53 @@ public class VoiceRecognitionService extends Service {
                 AUDIO_FORMAT,
                 bufferSize
             );
-            
+
             if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
-                Log.e(TAG, "AudioRecord initialization failed");
+                Log.e(TAG, "=== AUDIORECORD INITIALIZATION FAILED ===");
+                Log.e(TAG, "State: " + audioRecord.getState());
+                Log.e(TAG, "Expected: " + AudioRecord.STATE_INITIALIZED);
+
                 if (callback != null) {
-                    callback.onError("Không thể khởi tạo microphone");
+                    callback.onError("Khong the khoi tao microphone");
+                }
+
+                // Clean up
+                if (audioRecord != null) {
+                    audioRecord.release();
+                    audioRecord = null;
                 }
                 return;
             }
-            
+
             isRecording = true;
             recordingThread = new Thread(new RecordingRunnable());
             recordingThread.start();
-            
-            Log.d(TAG, "Recording started with buffer size: " + bufferSize);
+
+            Log.i(TAG, "=== RECORDING STARTED SUCCESSFULLY ===");
+            Log.i(TAG, "Wake word: " + config.getWakeWord());
+            Log.i(TAG, "Energy threshold: " + ENERGY_THRESHOLD);
+
         } catch (SecurityException e) {
-            Log.e(TAG, "No RECORD_AUDIO permission", e);
+            Log.e(TAG, "=== SECURITY EXCEPTION ===", e);
+            Log.e(TAG, "No RECORD_AUDIO permission!");
+
             if (callback != null) {
-                callback.onError("Không có quyền ghi âm");
+                callback.onError("Khong co quyen ghi am");
+            }
+
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "=== ILLEGAL ARGUMENT EXCEPTION ===", e);
+            Log.e(TAG, "Invalid AudioRecord parameters!");
+
+            if (callback != null) {
+                callback.onError("Cau hinh microphone khong hop le");
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "=== UNEXPECTED EXCEPTION ===", e);
+
+            if (callback != null) {
+                callback.onError("Loi khong xac dinh: " + e.getMessage());
             }
         }
     }

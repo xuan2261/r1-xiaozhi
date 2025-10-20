@@ -1,5 +1,6 @@
 package com.phicomm.r1.xiaozhi.ui;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -7,6 +8,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.util.Log;
@@ -33,11 +35,20 @@ import com.phicomm.r1.xiaozhi.util.PairingCodeGenerator;
  * - Event-driven architecture thay vì callbacks
  * - Centralized state management
  * - Clean separation of concerns
+ *
+ * FIX: Added runtime permission handling for RECORD_AUDIO to prevent crash
  */
 public class MainActivity extends Activity {
-    
+
     private static final String TAG = "MainActivity";
-    
+
+    // Permission request codes
+    private static final int REQUEST_RECORD_AUDIO_PERMISSION = 1;
+    private static final int REQUEST_STORAGE_PERMISSIONS = 2;
+
+    // Permission state
+    private boolean permissionsGranted = false;
+
     // UI components
     private TextView statusText;
     private TextView pairingCodeText;
@@ -88,26 +99,29 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        
+
         // Initialize views - API 22 requires explicit cast
         initializeViews();
-        
+
         // Get XiaozhiCore và EventBus
         core = XiaozhiCore.getInstance();
         eventBus = core.getEventBus();
-        
+
         // Register event listeners
         registerEventListeners();
-        
+
         // Setup button listeners
         setupButtonListeners();
-        
-        // Start all services
-        startAllServices();
-        
-        // Bind to connection service
-        bindConnectionService();
-        
+
+        // FIX #1: Check and request permissions BEFORE starting services
+        if (checkRequiredPermissions()) {
+            permissionsGranted = true;
+            initializeServices();
+        } else {
+            permissionsGranted = false;
+            requestRequiredPermissions();
+        }
+
         Log.i(TAG, "MainActivity created");
         Log.i(TAG, "Core state: " + core.getStateSnapshot());
     }
@@ -308,13 +322,125 @@ public class MainActivity extends Activity {
         }
     }
     
+    /**
+     * FIX #1: Check required permissions before starting services
+     */
+    private boolean checkRequiredPermissions() {
+        // Check RECORD_AUDIO permission (critical for VoiceRecognitionService)
+        boolean hasRecordAudio = checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+            == PackageManager.PERMISSION_GRANTED;
+
+        // Check storage permissions (for wake word models and audio files)
+        boolean hasWriteStorage = checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            == PackageManager.PERMISSION_GRANTED;
+        boolean hasReadStorage = checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
+            == PackageManager.PERMISSION_GRANTED;
+
+        Log.i(TAG, "=== PERMISSION CHECK ===");
+        Log.i(TAG, "RECORD_AUDIO: " + hasRecordAudio);
+        Log.i(TAG, "WRITE_EXTERNAL_STORAGE: " + hasWriteStorage);
+        Log.i(TAG, "READ_EXTERNAL_STORAGE: " + hasReadStorage);
+        Log.i(TAG, "=======================");
+
+        return hasRecordAudio && hasWriteStorage && hasReadStorage;
+    }
+
+    /**
+     * FIX #1: Request required permissions
+     */
+    private void requestRequiredPermissions() {
+        Log.i(TAG, "Requesting runtime permissions...");
+
+        // Show explanation to user
+        Toast.makeText(this,
+            "App can ghi am de nhan dien giong noi. Vui long cap quyen!",
+            Toast.LENGTH_LONG).show();
+
+        // Request RECORD_AUDIO permission first (most critical)
+        requestPermissions(
+            new String[]{
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            },
+            REQUEST_RECORD_AUDIO_PERMISSION
+        );
+    }
+
+    /**
+     * FIX #1: Handle permission request result
+     */
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+        if (requestCode == REQUEST_RECORD_AUDIO_PERMISSION) {
+            boolean allGranted = true;
+
+            for (int i = 0; i < permissions.length; i++) {
+                boolean granted = grantResults[i] == PackageManager.PERMISSION_GRANTED;
+                Log.i(TAG, "Permission " + permissions[i] + ": " + granted);
+
+                if (!granted) {
+                    allGranted = false;
+                }
+            }
+
+            if (allGranted) {
+                Log.i(TAG, "=== ALL PERMISSIONS GRANTED ===");
+                permissionsGranted = true;
+                Toast.makeText(this, "[OK] Da cap quyen - Khoi dong dich vu...", Toast.LENGTH_SHORT).show();
+
+                // Now safe to start services
+                initializeServices();
+            } else {
+                Log.e(TAG, "=== PERMISSIONS DENIED ===");
+                permissionsGranted = false;
+
+                // Show error message
+                Toast.makeText(this,
+                    "[LOI] Khong co quyen ghi am! App se khong hoat dong.",
+                    Toast.LENGTH_LONG).show();
+
+                // Update UI to show error state
+                updateStatus("[LOI] Khong co quyen ghi am");
+                pairingCodeText.setText("[LOI] Thieu Quyen");
+
+                // Disable connect button
+                connectButton.setEnabled(false);
+            }
+        }
+    }
+
+    /**
+     * FIX #1: Initialize services only after permissions are granted
+     */
+    private void initializeServices() {
+        Log.i(TAG, "=== INITIALIZING SERVICES ===");
+
+        // Start all services
+        startAllServices();
+
+        // Bind to connection service
+        bindConnectionService();
+
+        Log.i(TAG, "=== SERVICES INITIALIZED ===");
+    }
+
     private void startAllServices() {
+        Log.i(TAG, "Starting VoiceRecognitionService...");
         startService(new Intent(this, VoiceRecognitionService.class));
+
+        Log.i(TAG, "Starting AudioPlaybackService...");
         startService(new Intent(this, AudioPlaybackService.class));
+
+        Log.i(TAG, "Starting LEDControlService...");
         startService(new Intent(this, LEDControlService.class));
+
+        Log.i(TAG, "Starting HTTPServerService...");
         startService(new Intent(this, HTTPServerService.class));
     }
-    
+
     private void bindConnectionService() {
         Intent xiaozhiIntent = new Intent(this, XiaozhiConnectionService.class);
         startService(xiaozhiIntent);
