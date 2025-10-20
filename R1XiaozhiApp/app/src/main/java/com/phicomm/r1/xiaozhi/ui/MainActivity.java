@@ -323,11 +323,31 @@ public class MainActivity extends Activity {
     
     /**
      * Check activation status (py-xiaozhi method)
+     * FIX #2: Auto-connect if already activated
      */
     private void checkActivationStatus() {
         if (xiaozhiService != null && xiaozhiService.isActivated()) {
-            updateStatus("[OK] Thiet bi da kich hoat - San sang su dung");
-            pairingCodeText.setText("[OK] Da Kich Hoat");
+            // Device is activated - check connection status
+            if (xiaozhiService.isConnected()) {
+                // Already connected
+                updateStatus("[OK] Da kich hoat va ket noi thanh cong");
+                pairingCodeText.setText("[OK] Da Ket Noi");
+                Log.i(TAG, "Device activated and connected");
+            } else {
+                // Activated but not connected - auto-connect
+                updateStatus("[OK] Da kich hoat - Dang ket noi...");
+                pairingCodeText.setText("[OK] Da Kich Hoat");
+
+                Log.i(TAG, "=== AUTO-CONNECT ON RESTART ===");
+                Log.i(TAG, "Device is activated but not connected");
+                Log.i(TAG, "Starting auto-connect...");
+
+                // FIX #2: Auto-connect WebSocket
+                xiaozhiService.connect();
+
+                Log.i(TAG, "===============================");
+            }
+
             instructionsText.setVisibility(View.GONE);
             copyButton.setVisibility(View.GONE);
             connectButton.setEnabled(false);

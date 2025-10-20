@@ -118,9 +118,18 @@ public class XiaozhiConnectionService extends Service {
             
             @Override
             public void onActivationSuccess(String accessToken) {
-                Log.i(TAG, "Activation successful!");
-                // Auto connect with token
+                Log.i(TAG, "=== ACTIVATION SUCCESS ===");
+                Log.i(TAG, "Access token received, auto-connecting WebSocket...");
+
+                // FIX #1: Auto-connect WebSocket immediately after activation
                 connectWithToken(accessToken);
+
+                // Notify UI after connection attempt
+                if (connectionListener != null) {
+                    connectionListener.onPairingSuccess();
+                }
+
+                Log.i(TAG, "==========================");
             }
             
             @Override
@@ -145,8 +154,31 @@ public class XiaozhiConnectionService extends Service {
     
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        Log.i(TAG, "Service started");
+        Log.i(TAG, "=== SERVICE STARTED ===");
         retryHandler = new Handler();
+
+        // FIX #3: Auto-connect if device is activated but not connected
+        // This handles boot/restart scenarios
+        if (deviceActivator != null && deviceActivator.isActivated()) {
+            if (!isConnected()) {
+                Log.i(TAG, "Device is activated but not connected");
+                Log.i(TAG, "Starting auto-connect on service startup...");
+
+                // Delay connect to ensure service is fully initialized
+                retryHandler.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        connect();
+                    }
+                }, 1000); // 1 second delay
+            } else {
+                Log.i(TAG, "Device is already connected");
+            }
+        } else {
+            Log.i(TAG, "Device not activated - waiting for user action");
+        }
+
+        Log.i(TAG, "=======================");
         return START_STICKY;
     }
     
